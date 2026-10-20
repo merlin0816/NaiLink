@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.29.0](https://github.com/slobys/NaiLink/compare/v1.28.0...v1.29.0) (2026-10-20)
+
+
+### Features
+
+* **dae-lsp:** add browser LSP support and fix completions ([32b5b49](https://github.com/slobys/NaiLink/commit/32b5b49abd58b8f16c72a2f2dd188bc7c2cf7877))
+* **openwrt:** add router plugin and installer ([eabc37c](https://github.com/slobys/NaiLink/commit/eabc37cdc2716e424a323c806e7da3acd83ecd19))
+* **openwrt:** compact group member layout ([ef7714f](https://github.com/slobys/NaiLink/commit/ef7714ff10af589715e07751a1d337b7d5551353))
+* **openwrt:** compact node picker ([09bca6e](https://github.com/slobys/NaiLink/commit/09bca6e3d044f57c2b92cf36faf8cd7c7feed2d0))
+* **openwrt:** densify node resources ([8fc9b16](https://github.com/slobys/NaiLink/commit/8fc9b16d841aa6a6f12afbccc48af0d27c5973ba))
+* **openwrt:** improve dashboard interactions ([826dbd7](https://github.com/slobys/NaiLink/commit/826dbd7bb4e6c6433b0c33d73737cc8af3b0a442))
+* **openwrt:** open panel with LuCI session ([5cbe9c9](https://github.com/slobys/NaiLink/commit/5cbe9c9e07a315b4be2ac230d3c347add89e463c))
+* **openwrt:** redesign the management panel ([c77d78d](https://github.com/slobys/NaiLink/commit/c77d78da879466e32053f87c124aee3ae71093d8))
+* **openwrt:** refine node and subscription UX ([8365028](https://github.com/slobys/NaiLink/commit/8365028e15a6402ab6f13e23e773f86874d4da03))
+* **openwrt:** refine panel and import names ([372b9cb](https://github.com/slobys/NaiLink/commit/372b9cb7b51fa869ce6f07688e75b86f0f41186c))
+* **openwrt:** release NaiLink 0.6.29 ([845317f](https://github.com/slobys/NaiLink/commit/845317f7c07df6d94ad42408cc8d5b68ad5cedcb))
+* **openwrt:** resume tests and refine selection ([539383a](https://github.com/slobys/NaiLink/commit/539383a6c7053a887225bbd7bb6730b0bece331d))
+* **openwrt:** separate nodes and fix latency ([6b54aa9](https://github.com/slobys/NaiLink/commit/6b54aa9532128a2fa46961c9db0e1a7cf79a0f47))
+* **openwrt:** split pages and speed up probes ([c1b99e8](https://github.com/slobys/NaiLink/commit/c1b99e8beac70f5d2abe10e3485218adfa295713))
+* **openwrt:** streamline large node workspaces ([d776743](https://github.com/slobys/NaiLink/commit/d776743b7401ccdcc3a62e9693c9497bea8d8901))
+* **openwrt:** test nodes in group pickers ([d308340](https://github.com/slobys/NaiLink/commit/d30834004dffffc0c79abb4f302192b499c3ea72))
+* optimize user experience ([7013499](https://github.com/slobys/NaiLink/commit/701349900e004eafa8c3e4c4326059c63fb8057a))
+* **parser:** add parser for dae language with AST and symbol information ([12b5754](https://github.com/slobys/NaiLink/commit/12b5754b8f53b5dbac00b9aac0839f5d52113736))
+* re-trigger release-please ([4febcf7](https://github.com/slobys/NaiLink/commit/4febcf7ebba807474e8215510669e0a756c31585))
+* trigger release ([e6618d5](https://github.com/slobys/NaiLink/commit/e6618d5cfb721dec3633278018e2f254c23daff9))
+* **ui:** enhance layout and visual design system ([1bc9280](https://github.com/slobys/NaiLink/commit/1bc928076986884658551f5634a80b86d10c3a26))
+* update pnpm workspace and add turbo configuration ([4484dc4](https://github.com/slobys/NaiLink/commit/4484dc43be6f1d229053bcc7bd589c528707024f))
+* **web:** add bootstrap resolver config input ([#757](https://github.com/slobys/NaiLink/issues/757)) ([4d6a433](https://github.com/slobys/NaiLink/commit/4d6a43331f2f6e25961935b9e7ac09a7568bb2b4))
+* **web:** add group resource pickers and improve drag UX ([#736](https://github.com/slobys/NaiLink/issues/736)) ([cfb0ec5](https://github.com/slobys/NaiLink/commit/cfb0ec528cc8bc3bfeed1dd1a9353bf9fa62de03))
+* **web:** add regex-filtered group subscriptions ([#738](https://github.com/slobys/NaiLink/issues/738)) ([3b62c11](https://github.com/slobys/NaiLink/commit/3b62c111172a906edc9d79335527f8206819cb8c))
+* **web:** add runtime traffic overview and node latency displays ([#742](https://github.com/slobys/NaiLink/issues/742)) ([4a519fc](https://github.com/slobys/NaiLink/commit/4a519fcbaa7004e50e80a309c68d6811596468cf))
+
+
+### Bug Fixes
+
+* **dnd:** allow dragging subscription nodes into groups ([605ad48](https://github.com/slobys/NaiLink/commit/605ad4847232fdc882ccf1304e8c6417b7645b6b))
+* **dnd:** migrate to @hello-pangea/dnd and fix drag issues in modals ([76d4492](https://github.com/slobys/NaiLink/commit/76d4492793236d73a897657cafdcbf09b9d46c1f))
+* harden router lifecycle and subscriptions ([c2a6f26](https://github.com/slobys/NaiLink/commit/c2a6f268b8b83f52d56dffb9e65439d8778dfd94))
+* **openwrt:** bypass stale LuCI dashboard cache ([22fa627](https://github.com/slobys/NaiLink/commit/22fa6274a013e72ce865588897d875b066a010a1))
+* **openwrt:** restore menus after upgrades ([8fe09f2](https://github.com/slobys/NaiLink/commit/8fe09f24ac8947da6cf500ad79d25b74c6e01561))
+* **pr-677:** address review feedback ([ebd7b7c](https://github.com/slobys/NaiLink/commit/ebd7b7c379e85e49feb986f7d1da99f1fa30d2d0))
+* **proxy:** preserve SS HY2 and AnyTLS options ([54d57cd](https://github.com/slobys/NaiLink/commit/54d57cdfc310aa2fedf5a1e2e2a501771e615c37))
+* remove rolldownOptions from build configuration ([632c33d](https://github.com/slobys/NaiLink/commit/632c33d620522c9d960321aa0ad6690f6b3fc2a2))
+* resolve CI failures from dependency upgrade breakages ([e46053f](https://github.com/slobys/NaiLink/commit/e46053f3f809cc632c9550720cbf41e9df423f90))
+* **ui:** align drag spacing and label contrast ([d669ff3](https://github.com/slobys/NaiLink/commit/d669ff38a67fadd78593d5db99097dba8d3c5fbc))
+* **ui:** compact manual node cards ([96c15af](https://github.com/slobys/NaiLink/commit/96c15af54ff381b40994574aa67490ce8865fdd0))
+* **ui:** fix scrolling issue of multi-select component ([#726](https://github.com/slobys/NaiLink/issues/726)) ([a8fe086](https://github.com/slobys/NaiLink/commit/a8fe08601dc1e5c4b34932a1bd95960c6c20c77d))
+* **ui:** follow the latest runtime logs ([72db304](https://github.com/slobys/NaiLink/commit/72db30483cfc877cf5875643973fccb1dfa8f47e))
+* **ui:** give node cards room to breathe ([26d05a3](https://github.com/slobys/NaiLink/commit/26d05a3266fb0f455d87c5657be9baa11aadfc24))
+* **ui:** scroll nodes and color latency results ([e49248b](https://github.com/slobys/NaiLink/commit/e49248ba31c6fc285b4e6b7e0496057f17c89dc2))
+* **web:** drop unused GroupAddNodes variable ([#741](https://github.com/slobys/NaiLink/issues/741)) ([02016e7](https://github.com/slobys/NaiLink/commit/02016e70505b8ca35ae717f641276f479bbd742e))
+* **web:** first batch of dashboard fixes from a whole-project review ([#784](https://github.com/slobys/NaiLink/issues/784)) ([b3043aa](https://github.com/slobys/NaiLink/commit/b3043aa7ce07c774c65e546112aa2c7a1c12edb5))
+* 节点行域名过长时删除按钮被挤出可视区域 ([55030d3](https://github.com/slobys/NaiLink/commit/55030d340da11a0e55cb8bb95caf314b42c23386))
+
+
+### Performance Improvements
+
+* **openwrt:** speed up menu switching ([a2de9d0](https://github.com/slobys/NaiLink/commit/a2de9d000a8fb59b592099ae0aac272e07dc2c87))
+
 ## [1.28.0](https://github.com/daeuniverse/daed/compare/v1.27.0...v1.28.0) (2026-04-18)
 
 
