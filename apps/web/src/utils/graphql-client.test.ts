@@ -1,6 +1,18 @@
 import { GraphQLClient } from 'graphql-request'
 import { describe, expect, it, vi } from 'vitest'
-import { cancellableGraphQLClient } from './graphql-client'
+import { cancellableGraphQLClient, graphQLNotice } from './graphql-client'
+
+describe('router graphQL notices', () => {
+  it('keeps transient overview failures local while translating real core failures', () => {
+    expect(graphQLNotice({ message: 'core_not_ready', path: ['general', 'runtimeOverview'] }, true)).toBeUndefined()
+    expect(graphQLNotice({ message: 'core_not_ready', path: ['switchCore'] }, true)).toContain('就绪')
+    expect(graphQLNotice({ message: 'core_rolled_back', path: ['switchCore'] }, true)).toContain('恢复')
+    expect(graphQLNotice({ message: 'unrelated failure' }, true)).toBe('unrelated failure')
+    expect(graphQLNotice({ message: 'core_not_ready', path: ['general', 'runtimeOverview'] }, false)).toBe(
+      'core_not_ready',
+    )
+  })
+})
 
 function waitingClient() {
   let activeSignal: AbortSignal | undefined

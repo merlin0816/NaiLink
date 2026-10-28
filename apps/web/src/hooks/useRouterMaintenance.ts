@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { jobActive, maintenanceAccessExpired, readMaintenance, startMaintenance } from '~/utils/router-maintenance'
 
-export function useRouterMaintenance() {
-  const client = useQueryClient()
-  const query = useQuery({
+export function useRouterMaintenanceQuery(enabled = true) {
+  return useQuery({
     queryKey: ['router-maintenance'],
+    enabled,
     queryFn: readMaintenance,
     staleTime: 30000,
     retry: false,
@@ -16,6 +16,11 @@ export function useRouterMaintenance() {
         ? 2000
         : false,
   })
+}
+
+export function useRouterMaintenance() {
+  const client = useQueryClient()
+  const query = useRouterMaintenanceQuery()
   const mutation = useMutation({
     mutationFn: startMaintenance,
     onSuccess: (result) => {

@@ -534,6 +534,7 @@ type Mutation {
         ("graphql/service/node/router_test_jobs_test.go", "node_test_jobs_test.go"),
         ("graphql/router_test_jobs.go", "test_job_mutations.go"),
         ("dae/router_core_manager_test.go", "core_manager_test.go"),
+        ("dae/router_core_api_test.go", "core_api_test.go"),
         ("graphql/router_core_mutations.go", "core_mutations.go"),
         ("graphql/router_geodata_mutation.go", "geodata_mutation.go"),
         ("graphql/router_geodata_mutation_test.go", "geodata_mutation_test.go"),

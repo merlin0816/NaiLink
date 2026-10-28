@@ -581,7 +581,8 @@
     "trafficTrend": "流量趋势",
     "timeRange": "统计时间范围",
     "totalTrafficShort": "本次流量",
-    "statsUnavailable": "数据暂不可用"
+    "statsUnavailable": "数据暂不可用",
+    "coreSwitching": "内核切换中，完成后自动恢复更新"
   },
   "importResource": {
     "optionalTag": "标签（可选）",

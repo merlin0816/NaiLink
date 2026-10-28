@@ -169,12 +169,13 @@ export interface TrafficOverviewQueryData {
   }>
 }
 
-export function useTrafficOverviewQuery(windowSec: number, maxPoints: number) {
+export function useTrafficOverviewQuery(windowSec: number, maxPoints: number, enabled = true) {
   const gqlClient = useGQLQueryClient()
   const refetchInterval = Math.max(500, Math.min(5_000, Math.round(windowSec / 60) * 500))
 
   return useQuery({
     queryKey: [...QUERY_KEY_TRAFFIC, windowSec, maxPoints],
+    enabled,
     queryFn: async ({ signal }) => {
       const data = await gqlClient.request<
         { general: { runtimeOverview: TrafficOverviewQueryData } },
@@ -210,7 +211,7 @@ export function useTrafficOverviewQuery(windowSec: number, maxPoints: number) {
       return data.general.runtimeOverview
     },
     placeholderData: (previousData) => previousData,
-    refetchInterval,
+    refetchInterval: enabled ? refetchInterval : false,
   })
 }
 

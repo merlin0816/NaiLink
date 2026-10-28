@@ -581,7 +581,8 @@
     "trafficTrend": "Traffic trend",
     "timeRange": "Time range",
     "totalTrafficShort": "Session traffic",
-    "statsUnavailable": "Updates unavailable"
+    "statsUnavailable": "Updates unavailable",
+    "coreSwitching": "Switching cores; updates resume automatically"
   },
   "importResource": {
     "optionalTag": "Label (optional)",

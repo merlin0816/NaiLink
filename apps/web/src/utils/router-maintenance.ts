@@ -53,6 +53,13 @@ export interface MaintenanceStatus {
   cores?: CoreStatus
 }
 
+export function coreTransitionActive(status?: MaintenanceStatus) {
+  return (
+    status?.cores?.phase === 'switching' ||
+    (!!status?.job && jobActive(status.job) && status.job.action.startsWith('core_switch_'))
+  )
+}
+
 export const maintenanceMessages: Record<string, string> = {
   busy: '已有维护或安装任务正在执行，请稍后再试。',
   check_required: '请先检查最新版本，再开始更新。',

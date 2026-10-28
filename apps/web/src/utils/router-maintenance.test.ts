@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   coreProblemLabel,
+  coreTransitionActive,
   jobActive,
   maintenanceAccessExpired,
   newerVersion,
@@ -8,6 +9,22 @@ import {
 } from './router-maintenance'
 
 describe('maintenance state', () => {
+  it('pauses statistics only during a live core switch and resumes on success or rollback', () => {
+    const status = { success: true, current: '0.6.47' }
+    const job = {
+      id: 'switch',
+      action: 'core_switch_dae' as const,
+      state: 'running' as const,
+      phase: 'switching',
+      started: 1,
+      updated: 2,
+    }
+    expect(coreTransitionActive()).toBe(false)
+    expect(coreTransitionActive({ ...status, job })).toBe(true)
+    expect(coreTransitionActive({ ...status, job: { ...job, action: 'core_check_dae' } })).toBe(false)
+    expect(coreTransitionActive({ ...status, job: { ...job, state: 'error', code: 'core_rolled_back' } })).toBe(false)
+    expect(coreTransitionActive({ ...status, job: { ...job, state: 'success' } })).toBe(false)
+  })
   it('shows Chinese reports and safely translates legacy or unknown core errors', () => {
     expect(coreProblemLabel('节点 1：unsupported_node_option')).not.toContain('unsupported_')
     expect(coreProblemLabel('unknown_future_error')).toContain('原配置保留')

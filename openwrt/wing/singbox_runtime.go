@@ -256,6 +256,11 @@ type routerSingBoxSession struct {
 	owned        bool
 	ready        atomic.Bool
 	portConflict atomic.Bool
+	apiMu        sync.Mutex
+	apiClient    *http.Client
+	apiContext   context.Context
+	apiCancel    context.CancelFunc
+	apiClosed    bool
 	statsMu      sync.Mutex
 	stats        *RuntimeOverview
 	samples      []RuntimeTrafficSample
@@ -417,15 +422,53 @@ func (s *routerSingBoxSession) current() *routerSingBoxSession {
 	return s
 }
 func (s *routerSingBoxSession) Done() <-chan error { return s.current().done }
+func (s *routerSingBoxSession) controlAPIClient() (*http.Client, context.Context, error) {
+	s.apiMu.Lock()
+	defer s.apiMu.Unlock()
+	if s.apiClosed {
+		return nil, nil, errors.New("core_not_ready")
+	}
+	if s.apiClient == nil {
+		s.apiContext, s.apiCancel = context.WithCancel(context.Background())
+		s.apiClient = &http.Client{
+			Transport: &http.Transport{
+				Proxy: nil, MaxConnsPerHost: 2, MaxIdleConns: 2, MaxIdleConnsPerHost: 2,
+				IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: 2 * time.Second,
+				MaxResponseHeaderBytes: 32 << 10, DisableCompression: true,
+			},
+			Timeout:       2 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+	}
+	return s.apiClient, s.apiContext, nil
+}
+func (s *routerSingBoxSession) closeControlAPI() {
+	s.apiMu.Lock()
+	s.apiClosed = true
+	client, cancel := s.apiClient, s.apiCancel
+	s.apiClient, s.apiContext, s.apiCancel = nil, nil, nil
+	s.apiMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if client != nil {
+		client.CloseIdleConnections()
+	}
+}
 func (s *routerSingBoxSession) api(ctx context.Context, path string, value any) error {
+	client, lifetime, err := s.controlAPIClient()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(lifetime, cancel)
+	defer func() { stop(); cancel() }()
 	request, err := http.NewRequestWithContext(ctx, "GET", "http://"+routercore.SocksAddress(s.ports.API)+path, nil)
 	if err != nil {
 		return err
 	}
 	request.Header.Set("Authorization", "Bearer "+s.ports.Secret)
-	transport := &http.Transport{Proxy: nil}
-	defer transport.CloseIdleConnections()
-	response, err := (&http.Client{Transport: transport, Timeout: 2 * time.Second}).Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		return errors.New("core_not_ready")
 	}
@@ -433,7 +476,19 @@ func (s *routerSingBoxSession) api(ctx context.Context, path string, value any) 
 	if response.StatusCode != 200 {
 		return errors.New("core_not_ready")
 	}
-	if value != nil && json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(value) != nil {
+	reader := &io.LimitedReader{R: response.Body, N: (2 << 20) + 1}
+	if value != nil && json.NewDecoder(reader).Decode(value) != nil {
+		if ctx.Err() != nil || lifetime.Err() != nil {
+			return errors.New("core_not_ready")
+		}
+		return errors.New("core_api_invalid")
+	}
+	// Reading to EOF permits bounded keep-alive reuse, including /version calls
+	// that do not consume JSON. A cancelled/stopped session can never reopen it.
+	if _, err := io.Copy(io.Discard, reader); err != nil || reader.N == 0 {
+		if ctx.Err() != nil || lifetime.Err() != nil {
+			return errors.New("core_not_ready")
+		}
 		return errors.New("core_api_invalid")
 	}
 	return nil
@@ -487,6 +542,7 @@ func (s *routerSingBoxSession) Ready(ctx context.Context) error {
 func (s *routerSingBoxSession) Stop(ctx context.Context) error {
 	s = s.current()
 	s.ready.Store(false)
+	s.closeControlAPI()
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGTERM)
 	}

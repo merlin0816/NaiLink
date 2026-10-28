@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 
 import { isMockMode, MockGraphQLClient } from '~/mocks'
 import { endpointURLAtom, routerSessionExpiredAtom, tokenAtom } from '~/store'
-import { cancellableGraphQLClient } from '~/utils/graphql-client'
+import { cancellableGraphQLClient, graphQLNotice } from '~/utils/graphql-client'
 import { routerMode } from '~/utils/router-mode'
 
 export type { GQLClientInterface } from '~/utils/graphql-client'
@@ -78,8 +78,8 @@ export function QueryProvider({ children, colorScheme, themeMode, setThemeMode }
           const error = (response as ClientError).response?.errors?.[0]
 
           if (error) {
-            if (!/^latency_job_|^test_job_|^core_changed$|^invalid_test_job$/.test(error.message))
-              toast.error(error.message)
+            const notice = graphQLNotice(error, routerMode)
+            if (notice) toast.error(notice)
 
             if (error.message === 'access denied') {
               if (routerMode) routerSessionExpiredAtom.set(true)

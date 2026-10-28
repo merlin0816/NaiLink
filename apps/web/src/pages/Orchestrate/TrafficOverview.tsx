@@ -10,7 +10,10 @@ import { useTrafficOverviewQuery } from '~/apis'
 import { Button } from '~/components/ui/button'
 import { Card, CardContent } from '~/components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '~/components/ui/chart'
+import { useRouterMaintenanceQuery } from '~/hooks/useRouterMaintenance'
 import { cn } from '~/lib/utils'
+import { coreTransitionActive } from '~/utils/router-maintenance'
+import { routerMode } from '~/utils/router-mode'
 
 type TimeRangeKey = '1m' | '10m' | '30m' | '1h'
 
@@ -168,6 +171,8 @@ export function TrafficOverview({ compact = false }: { compact?: boolean }) {
   const { t } = useTranslation()
   const [selectedRange, setSelectedRange] = useState<TimeRangeKey>('1m')
   const [showTrends, setTrendsOpen] = useState(false)
+  const maintenance = useRouterMaintenanceQuery(routerMode)
+  const switchingCore = coreTransitionActive(maintenance.data)
   const trendsOpen = compact || showTrends
 
   const chartConfig = useMemo(
@@ -187,6 +192,7 @@ export function TrafficOverview({ compact = false }: { compact?: boolean }) {
   const trafficOverviewQuery = useTrafficOverviewQuery(
     selectedWindow.seconds,
     trendsOpen ? selectedWindow.maxPoints : 2,
+    !switchingCore,
   )
   const runtimeOverview = trafficOverviewQuery.data
   const chartWindowEnd = useMemo(
@@ -237,10 +243,18 @@ export function TrafficOverview({ compact = false }: { compact?: boolean }) {
               aria-hidden="true"
               className={cn(
                 'h-1.5 w-1.5 rounded-full',
-                available && !trafficOverviewQuery.isError ? 'bg-emerald-500' : 'bg-muted-foreground',
+                available && !trafficOverviewQuery.isError && !switchingCore ? 'bg-emerald-500' : 'bg-muted-foreground',
               )}
             />
-            {t(trafficOverviewQuery.isError ? 'panel.statsUnavailable' : available ? 'panel.live' : 'panel.loading')}
+            {t(
+              switchingCore
+                ? 'panel.coreSwitching'
+                : trafficOverviewQuery.isError
+                  ? 'panel.statsUnavailable'
+                  : available
+                    ? 'panel.live'
+                    : 'panel.loading',
+            )}
           </span>
         ) : (
           <Button
@@ -255,7 +269,12 @@ export function TrafficOverview({ compact = false }: { compact?: boolean }) {
           </Button>
         )}
       </div>
-      {trafficOverviewQuery.isError && (
+      {switchingCore && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {t('panel.coreSwitching')}
+        </p>
+      )}
+      {!switchingCore && trafficOverviewQuery.isError && (
         <div
           role="status"
           className="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm text-muted-foreground"

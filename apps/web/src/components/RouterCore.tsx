@@ -162,15 +162,17 @@ export function RouterCore() {
                   )}
                 >
                   <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                  {live.isPending
-                    ? '正在读取'
-                    : live.isError
-                      ? '状态未确认'
-                      : live.data?.runtime === 'ready'
-                        ? live.data?.running === false
-                          ? '代理未启用'
-                          : '运行就绪'
-                        : '等待恢复'}
+                  {busy && coreJob?.action.startsWith('core_switch_')
+                    ? '内核切换中'
+                    : live.isPending
+                      ? '正在读取'
+                      : live.isError
+                        ? '状态未确认'
+                        : live.data?.runtime === 'ready'
+                          ? live.data?.running === false
+                            ? '代理未启用'
+                            : '运行就绪'
+                          : '等待恢复'}
                 </span>
               </div>
               <p className="mt-2 text-xs leading-relaxed text-muted-foreground" data-core-memory>
