@@ -173,7 +173,8 @@ export function RouterGeodata() {
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
   const data = query.data?.geodata
-  const updating = mutation.isPending || (query.data?.job?.action === 'geodata' && jobActive(query.data.job))
+  const job = query.data?.job?.action === 'geodata' ? query.data.job : undefined
+  const updating = mutation.isPending || jobActive(job)
   return (
     <section
       className="col-span-full min-w-0 rounded-2xl border bg-card px-4 py-3 shadow-sm"
@@ -184,15 +185,22 @@ export function RouterGeodata() {
           <Database className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">
             <h2 className="text-sm font-semibold">GeoIP / GeoSite 规则库</h2>
-            <p className="mt-0.5 break-words text-xs tabular-nums text-muted-foreground">
-              {query.isPending
-                ? '正在读取批次…'
-                : query.isError
-                  ? '暂时无法读取状态'
-                  : data
-                    ? `当前批次 ${data.version}`
-                    : '系统规则库或自定义文件'}
-            </p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-muted-foreground">
+              <p className="break-words">
+                {query.isPending
+                  ? '正在读取批次…'
+                  : query.isError
+                    ? '暂时无法读取状态'
+                    : data
+                      ? `当前批次 ${data.version}`
+                      : '系统规则库或自定义文件'}
+              </p>
+              {!query.isError && job?.state === 'success' && (
+                <span role="status" aria-label={job.code === 'already_latest' ? '规则库已是最新' : '规则库已更新'}>
+                  {job.code === 'already_latest' ? '已是最新' : '已更新'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1">
@@ -248,7 +256,7 @@ export function RouterGeodata() {
           独立目录，两份文件一起校验更新；运行时重新加载已应用配置，失败恢复旧版，保留未应用的修改。
         </p>
       </div>
-      {query.data?.job?.action === 'geodata' && (
+      {job && job.state !== 'success' && (
         <div className="mt-3">
           <MaintenanceProgress type="geodata" />
         </div>
