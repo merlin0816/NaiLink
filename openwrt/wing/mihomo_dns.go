@@ -469,6 +469,10 @@ func mhValidDNSAnswer(q, a *dnsmessage.Msg) bool {
 // Shared SOCKS5 UDP DNS exchange. The destination and question are verified;
 // failed proxied DNS never silently falls back to a direct or system resolver.
 func routerSOCKSDNSExchange(ctx context.Context, ports sbPorts, target net.IP, port int, q *dnsmessage.Msg) (*dnsmessage.Msg, error) {
+	return routerSOCKSDNSExchangeWithin(ctx, ports, target, port, q, 5*time.Second)
+}
+
+func routerSOCKSDNSExchangeWithin(ctx context.Context, ports sbPorts, target net.IP, port int, q *dnsmessage.Msg, budget time.Duration) (*dnsmessage.Msg, error) {
 	if target == nil || port < 1 || port > 65535 {
 		return nil, errors.New("invalid_dns_upstream")
 	}
@@ -479,7 +483,7 @@ func routerSOCKSDNSExchange(ctx context.Context, ports sbPorts, target net.IP, p
 	defer tcp.Close()
 	stop := context.AfterFunc(ctx, func() { _ = tcp.Close() })
 	defer stop()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(budget)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
@@ -551,8 +555,31 @@ func routerSOCKSDNSExchange(ctx context.Context, ports sbPorts, target net.IP, p
 	if _, err = udp.Write(packet); err != nil {
 		return nil, err
 	}
-	buffer := make([]byte, 65536)
+	udpSize := int(dnsmessage.MinMsgSize)
+	if opt := q.IsEdns0(); opt != nil && int(opt.UDPSize()) > udpSize {
+		udpSize = int(opt.UDPSize())
+	}
+	// The negotiated DNS size plus the longest SOCKS IP envelope. Ordinary
+	// queries no longer allocate a maximum-size datagram for each exchange.
+	buffer := make([]byte, udpSize+22)
+	if mhDNSReadOnly(q) {
+		retryAt := time.Now().Add(500 * time.Millisecond)
+		if deadline.Before(retryAt) {
+			retryAt = deadline
+		}
+		_ = udp.SetReadDeadline(retryAt)
+	}
 	n, err := udp.Read(buffer)
+	if timeout, ok := err.(net.Error); ok && timeout.Timeout() && mhDNSReadOnly(q) && ctx.Err() == nil && time.Now().Before(deadline) {
+		// A cold userspace tunnel may lose its first UDP packet. Resend a
+		// read-only query ONCE on the same authenticated relay, target and ID,
+		// inside the original deadline. Never retry invalid DNS, updates,
+		// transfers or cancellation, and never change the upstream or route.
+		_ = udp.SetReadDeadline(deadline)
+		if _, err = udp.Write(packet); err == nil {
+			n, err = udp.Read(buffer)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

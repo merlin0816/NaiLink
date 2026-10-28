@@ -3,7 +3,6 @@ package dae
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -93,102 +92,13 @@ func ProbeRouterCoreUDP(ctx context.Context, link string, global daeConfig.Globa
 }
 
 func routerSOCKSUDPQuery(ctx context.Context, session *routerSingBoxSession, target net.IP, port int) error {
-	tcp, err := (&net.Dialer{}).DialContext(ctx, "tcp4", routercore.SocksAddress(session.ports.Mixed))
-	if err != nil {
-		return err
-	}
-	defer tcp.Close()
-	stop := context.AfterFunc(ctx, func() { _ = tcp.Close() })
-	defer stop()
-	deadline := time.Now().Add(6 * time.Second)
-	if end, ok := ctx.Deadline(); ok && end.Before(deadline) {
-		deadline = end
-	}
-	_ = tcp.SetDeadline(deadline)
-	if _, err = tcp.Write([]byte{5, 1, 2}); err != nil {
-		return err
-	}
-	var response [2]byte
-	if _, err = io.ReadFull(tcp, response[:]); err != nil || response != [2]byte{5, 2} {
-		return errors.New("socks_auth_failed")
-	}
-	user, password := "nailink", session.ports.Secret
-	auth := append([]byte{1, byte(len(user))}, []byte(user)...)
-	auth = append(auth, byte(len(password)))
-	auth = append(auth, []byte(password)...)
-	if _, err = tcp.Write(auth); err != nil {
-		return err
-	}
-	if _, err = io.ReadFull(tcp, response[:]); err != nil || response != [2]byte{1, 0} {
-		return errors.New("socks_auth_failed")
-	}
-	if _, err = tcp.Write([]byte{5, 3, 0, 1, 127, 0, 0, 1, 0, 0}); err != nil {
-		return err
-	}
-	var header [4]byte
-	if _, err = io.ReadFull(tcp, header[:]); err != nil || header[0] != 5 || header[1] != 0 {
-		return errors.New("udp_unsupported")
-	}
-	length := 4
-	if header[3] == 4 {
-		length = 16
-	} else if header[3] != 1 {
-		return errors.New("invalid_udp_relay")
-	}
-	address := make([]byte, length+2)
-	if _, err = io.ReadFull(tcp, address); err != nil {
-		return err
-	}
-	relay := &net.UDPAddr{IP: net.IP(address[:length]), Port: int(binary.BigEndian.Uint16(address[length:]))}
-	if !relay.IP.IsLoopback() && !relay.IP.IsUnspecified() {
-		return errors.New("invalid_udp_relay")
-	}
-	relay.IP = net.IPv4(127, 0, 0, 1)
-	udp, err := net.DialUDP("udp4", nil, relay)
-	if err != nil {
-		return err
-	}
-	defer udp.Close()
-	stopUDP := context.AfterFunc(ctx, func() { _ = udp.Close() })
-	defer stopUDP()
-	_ = udp.SetDeadline(deadline)
 	query := new(dnsmessage.Msg)
 	query.SetQuestion("www.google.com.", dnsmessage.TypeA)
-	data, err := query.Pack()
+	answer, err := routerSOCKSDNSExchangeWithin(ctx, session.ports, target, port, query, 6*time.Second)
 	if err != nil {
 		return err
 	}
-	packet := []byte{0, 0, 0}
-	if ip4 := target.To4(); ip4 != nil {
-		packet = append(packet, 1)
-		packet = append(packet, ip4...)
-	} else {
-		packet = append(packet, 4)
-		packet = append(packet, target.To16()...)
-	}
-	packet = binary.BigEndian.AppendUint16(packet, uint16(port))
-	packet = append(packet, data...)
-	if _, err = udp.Write(packet); err != nil {
-		return err
-	}
-	buffer := make([]byte, 8192)
-	n, err := udp.Read(buffer)
-	if err != nil {
-		return err
-	}
-	if n < 10 || buffer[0] != 0 || buffer[1] != 0 || buffer[2] != 0 {
-		return errors.New("invalid_udp_reply")
-	}
-	offset := 10
-	if buffer[3] == 4 {
-		offset = 22
-	} else if buffer[3] == 3 && n > 4 {
-		offset = 7 + int(buffer[4])
-	} else if buffer[3] != 1 {
-		return errors.New("invalid_udp_reply")
-	}
-	answer := new(dnsmessage.Msg)
-	if offset >= n || answer.Unpack(buffer[offset:n]) != nil || answer.Id != query.Id || !answer.Response || answer.Rcode != dnsmessage.RcodeSuccess || len(answer.Answer) == 0 || len(answer.Question) != 1 || answer.Question[0] != query.Question[0] {
+	if answer.Rcode != dnsmessage.RcodeSuccess || len(answer.Answer) == 0 {
 		return errors.New("invalid_dns_reply")
 	}
 	return nil

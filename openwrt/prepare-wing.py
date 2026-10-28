@@ -510,6 +510,7 @@ type Mutation {
         ("dae/router_core_manager.go", "core_manager.go"),
         ("dae/router_core_memory.go", "core_memory.go"),
         ("dae/router_core_memory_test.go", "core_memory_test.go"),
+        ("dae/router_core_udp_probe_test.go", "core_udp_probe_test.go"),
         ("dae/router_core_capabilities.go", "core_capabilities.go"),
         ("dae-core/control/router_core_listener.go", "core_listener.go"),
         ("dae-core/control/router_core_listener_test.go", "core_listener_test.go"),
