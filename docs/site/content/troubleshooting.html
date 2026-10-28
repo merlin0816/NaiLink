@@ -26,10 +26,9 @@
   旧更新器不能在下载新脚本之前修复自己。若版本检查正常、下载一直失败，可在路由器 SSH 通过同仓库官方 API
   获取新版脚本，执行保留配置的更新：
 </p>
-<pre><code class="language-sh">curl -fL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 \
-  -H 'Accept: application/vnd.github.raw+json' \
-  -o /tmp/nailink-install.sh \
-  https://api.github.com/repos/slobys/NaiLink/contents/openwrt/install.sh?ref=main \
+<pre><code class="language-sh">uclient-fetch -T 60 --header='Accept: application/vnd.github.raw+json' \
+  -O /tmp/nailink-install.sh \
+  'https://api.github.com/repos/slobys/NaiLink/contents/openwrt/install.sh?ref=main' \
   &amp;&amp; sh /tmp/nailink-install.sh --install --update-only</code></pre>
 <p>
   这不是卸载重装。脚本先准备并校验新包和旧版回退包，之后才停止服务与备份。若仍下载失败，不会停用原服务；不要删除节点或反复卸载。
