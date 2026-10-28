@@ -29,6 +29,37 @@ async function waitText(locator, pattern) {
   }
   assert.match(await locator.textContent(), pattern)
 }
+async function checkHorizontalChoices(dialog, selected) {
+  const choices = dialog.locator('[data-core-option]')
+  assert.equal(await choices.count(), 3)
+  const boxes = await choices.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const box = node.getBoundingClientRect()
+      return { x: box.x, y: box.y, width: box.width, height: box.height }
+    }),
+  )
+  assert.ok(Math.max(...boxes.map((b) => b.y)) - Math.min(...boxes.map((b) => b.y)) < 1, JSON.stringify(boxes))
+  assert.ok(boxes[0].x < boxes[1].x && boxes[1].x < boxes[2].x)
+  assert.ok(
+    boxes.every((b) => b.height <= 116 && b.width >= 58),
+    JSON.stringify(boxes),
+  )
+  const option = dialog.getByRole('button', { name: selected, exact: true })
+  assert.equal(await option.getAttribute('aria-pressed'), 'true')
+  assert.equal(await option.locator('svg').count(), 1)
+  await new Promise((resolve) => setTimeout(resolve, 220))
+  const backgrounds = await choices.evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      pressed: node.getAttribute('aria-pressed'),
+      color: getComputedStyle(node).backgroundColor,
+    })),
+  )
+  assert.ok(
+    backgrounds
+      .filter((b) => b.pressed !== 'true')
+      .every((b) => b.color !== backgrounds.find((c) => c.pressed === 'true').color),
+  )
+}
 async function checkManualLatency(page, context, touch, screenshot) {
   await page.goto(`${base}/cgi-bin/luci/admin/services/daed/resources`)
   const frame = page.frameLocator('iframe')
@@ -122,8 +153,19 @@ async function checkManualLatency(page, context, touch, screenshot) {
     await gql(
       `mutation{selectConfig(id:${JSON.stringify(config)}) selectDns(id:${JSON.stringify(dns)}) selectRouting(id:${JSON.stringify(route)}) run(dry:false)}`,
     )
-    const nativeJSON = JSON.stringify({type:'ssh',tag:'Native fixture',server:'fixture.invalid',server_port:22,user:'fixture',password:'fixture'})
-    const native = (await gql(`mutation{importNodes(rollbackError:true,args:[{link:${JSON.stringify(nativeJSON)}}]){error node{id link protocol name}}}`)).importNodes[0]
+    const nativeJSON = JSON.stringify({
+      type: 'ssh',
+      tag: 'Native fixture',
+      server: 'fixture.invalid',
+      server_port: 22,
+      user: 'fixture',
+      password: 'fixture',
+    })
+    const native = (
+      await gql(
+        `mutation{importNodes(rollbackError:true,args:[{link:${JSON.stringify(nativeJSON)}}]){error node{id link protocol name}}}`,
+      )
+    ).importNodes[0]
     assert.equal(native.error, null)
     assert.equal(native.node.protocol, 'ssh')
     assert.match(native.node.link, /^singbox:\/\//)
@@ -136,8 +178,10 @@ async function checkManualLatency(page, context, touch, screenshot) {
     await control('snapshot')
     await frame.getByRole('button', { name: /代理内核 dae/ }).click()
     let dialog = frame.getByRole('dialog')
-    assert.equal(await dialog.getByRole('button', {name:'dae',exact:true}).getAttribute('aria-pressed'), 'true')
-    await dialog.getByRole('button', {name:'sing-box',exact:true}).click()
+    await checkHorizontalChoices(dialog, 'dae')
+    assert.equal(await dialog.getByRole('button', { name: 'dae', exact: true }).getAttribute('aria-pressed'), 'true')
+    await dialog.getByRole('button', { name: 'sing-box', exact: true }).click()
+    await checkHorizontalChoices(dialog, 'sing-box')
     await control('maintenance', { fail: 'download' })
     await dialog.getByRole('button', { name: /下载并安装 sing-box/ }).click()
     await waitText(dialog, /下载失败/)
@@ -163,34 +207,34 @@ async function checkManualLatency(page, context, touch, screenshot) {
     await waitText(dialog, /已恢复原内核/)
     assert.equal(JSON.parse((await gql('{coreStatus}')).coreStatus).current, 'dae')
     await control('core_fault', { fail: false })
-    await dialog.getByRole('button', {name:'mihomo',exact:true}).click()
-    await control('maintenance',{fail:'core_checksum'})
-    await dialog.getByRole('button',{name:/下载并安装 mihomo/}).click()
-    await waitText(dialog,/校验失败/)
-    assert.equal(JSON.parse((await gql('{coreStatus}')).coreStatus).current,'dae')
-    await control('maintenance',{fail:''})
-    await dialog.getByRole('button',{name:/下载并安装 mihomo/}).click()
-    await waitText(dialog,/内核已安装/)
-    await dialog.getByRole('button',{name:'检查兼容性'}).click()
-    await waitText(dialog,/兼容性检查通过/)
-    await dialog.getByRole('button',{name:'切换到 mihomo'}).click()
-    await waitText(dialog,/切换完成，当前内核：mihomo/)
-    await page.screenshot({path:path.join(output,'desktop-mihomo.png'),fullPage:true})
-    for (const name of ['sing-box','dae']) {
-      await dialog.getByRole('button',{name,exact:true}).click()
-      await dialog.getByRole('button',{name:'检查兼容性'}).click()
-      await waitText(dialog,/兼容性检查通过/)
-      await dialog.getByRole('button',{name:`切换到 ${name}`}).click()
-      await waitText(dialog,new RegExp(`切换完成，当前内核：${name}`))
+    await dialog.getByRole('button', { name: 'mihomo', exact: true }).click()
+    await control('maintenance', { fail: 'core_checksum' })
+    await dialog.getByRole('button', { name: /下载并安装 mihomo/ }).click()
+    await waitText(dialog, /校验失败/)
+    assert.equal(JSON.parse((await gql('{coreStatus}')).coreStatus).current, 'dae')
+    await control('maintenance', { fail: '' })
+    await dialog.getByRole('button', { name: /下载并安装 mihomo/ }).click()
+    await waitText(dialog, /内核已安装/)
+    await dialog.getByRole('button', { name: '检查兼容性' }).click()
+    await waitText(dialog, /兼容性检查通过/)
+    await dialog.getByRole('button', { name: '切换到 mihomo' }).click()
+    await waitText(dialog, /切换完成，当前内核：mihomo/)
+    await page.screenshot({ path: path.join(output, 'desktop-mihomo.png'), fullPage: true })
+    for (const name of ['sing-box', 'dae']) {
+      await dialog.getByRole('button', { name, exact: true }).click()
+      await dialog.getByRole('button', { name: '检查兼容性' }).click()
+      await waitText(dialog, /兼容性检查通过/)
+      await dialog.getByRole('button', { name: `切换到 ${name}` }).click()
+      await waitText(dialog, new RegExp(`切换完成，当前内核：${name}`))
     }
-    await control('core_fault',{engine:'mihomo',fail:true})
-    await dialog.getByRole('button',{name:'mihomo',exact:true}).click()
-    await dialog.getByRole('button',{name:'检查兼容性'}).click()
-    await waitText(dialog,/兼容性检查通过/)
-    await dialog.getByRole('button',{name:'切换到 mihomo'}).click()
-    await waitText(dialog,/已恢复原内核/)
-    assert.equal(JSON.parse((await gql('{coreStatus}')).coreStatus).current,'dae')
-    await control('core_fault',{engine:'mihomo',fail:false})
+    await control('core_fault', { engine: 'mihomo', fail: true })
+    await dialog.getByRole('button', { name: 'mihomo', exact: true }).click()
+    await dialog.getByRole('button', { name: '检查兼容性' }).click()
+    await waitText(dialog, /兼容性检查通过/)
+    await dialog.getByRole('button', { name: '切换到 mihomo' }).click()
+    await waitText(dialog, /已恢复原内核/)
+    assert.equal(JSON.parse((await gql('{coreStatus}')).coreStatus).current, 'dae')
+    await control('core_fault', { engine: 'mihomo', fail: false })
     assert.equal((await gql('{general{dae{modified}}}')).general.dae.modified, true)
     assert.equal((await control('compare')).unchanged, true)
     await checkManualLatency(page, context, false, path.join(output, 'desktop-manual-latency.png'))
@@ -212,7 +256,9 @@ async function checkManualLatency(page, context, touch, screenshot) {
     await frame.locator('[data-workspace="dashboard"]').waitFor({ timeout: 45000 })
     await frame.getByRole('button', { name: /代理内核 dae/ }).tap()
     dialog = frame.getByRole('dialog')
-    await dialog.getByRole('button', {name:'sing-box',exact:true}).tap()
+    await checkHorizontalChoices(dialog, 'dae')
+    await dialog.getByRole('button', { name: 'sing-box', exact: true }).tap()
+    await checkHorizontalChoices(dialog, 'sing-box')
     await dialog.getByRole('button', { name: '检查兼容性' }).tap()
     await waitText(dialog, /兼容性检查通过/)
     await dialog.getByRole('button', { name: '切换到 sing-box' }).tap()
@@ -224,19 +270,19 @@ async function checkManualLatency(page, context, touch, screenshot) {
     await frame.locator('[data-workspace="dashboard"]').waitFor({ timeout: 45000 })
     await frame.getByRole('button', { name: /代理内核 sing-box/ }).tap()
     await waitText(frame.getByRole('dialog'), /当前内核：sing-box/)
-    dialog=frame.getByRole('dialog')
-    await dialog.getByRole('button',{name:'mihomo',exact:true}).tap()
-    await dialog.getByRole('button',{name:'检查兼容性'}).tap()
-    await waitText(dialog,/兼容性检查通过/)
-    await dialog.getByRole('button',{name:'切换到 mihomo'}).tap()
-    await waitText(dialog,/切换完成，当前内核：mihomo/)
-    const mhBox=await dialog.boundingBox()
-    assert.ok(mhBox.x>=0 && mhBox.x+mhBox.width<=391,JSON.stringify(mhBox))
-    await page.screenshot({path:path.join(output,'mobile-mihomo.png'),fullPage:true})
+    dialog = frame.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'mihomo', exact: true }).tap()
+    await dialog.getByRole('button', { name: '检查兼容性' }).tap()
+    await waitText(dialog, /兼容性检查通过/)
+    await dialog.getByRole('button', { name: '切换到 mihomo' }).tap()
+    await waitText(dialog, /切换完成，当前内核：mihomo/)
+    const mhBox = await dialog.boundingBox()
+    assert.ok(mhBox.x >= 0 && mhBox.x + mhBox.width <= 391, JSON.stringify(mhBox))
+    await page.screenshot({ path: path.join(output, 'mobile-mihomo.png'), fullPage: true })
     await page.reload()
-    await frame.locator('[data-workspace="dashboard"]').waitFor({timeout:45000})
-    await frame.getByRole('button',{name:/代理内核 mihomo/}).tap()
-    await waitText(frame.getByRole('dialog'),/当前内核：mihomo/)
+    await frame.locator('[data-workspace="dashboard"]').waitFor({ timeout: 45000 })
+    await frame.getByRole('button', { name: /代理内核 mihomo/ }).tap()
+    await waitText(frame.getByRole('dialog'), /当前内核：mihomo/)
     await checkManualLatency(page, mobile, true, path.join(output, 'mobile-manual-latency.png'))
     assert.equal((await control('compare')).unchanged, true)
     assert.deepEqual(errors, [])

@@ -17,9 +17,9 @@ interface LiveCore {
   memory?: { backend_kib: number; native_kib?: number; total_kib: number; complete: boolean }
 }
 const descriptions = {
-  dae: 'eBPF 接管 · 内置内核',
-  'sing-box': 'TUN 接管 · 多协议支持',
-  mihomo: 'TUN 接管 · Clash 生态',
+  dae: 'eBPF 接管',
+  'sing-box': 'TUN · 多协议',
+  mihomo: 'TUN · Clash',
 }
 function problemLabel(value: string) {
   return (
@@ -123,6 +123,8 @@ export function RouterCore() {
       <Button
         variant="outline"
         size="sm"
+        disabled={query.isPending}
+        aria-busy={query.isPending}
         aria-label={`代理内核 ${current || '未知'}，检查和切换`}
         onClick={() => {
           setTarget(current || 'dae')
@@ -182,7 +184,7 @@ export function RouterCore() {
                 <span>选择内核</span>
                 <span>每次仅运行一个代理内核</span>
               </div>
-              <div className="overflow-hidden rounded-xl border" role="group" aria-label="目标内核">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3" role="group" aria-label="目标内核">
                 {cores.map((name) => {
                   const optional =
                     name === 'dae'
@@ -192,50 +194,56 @@ export function RouterCore() {
                           ? { installed: core.installed, supported: core.supported, version: core.version }
                           : undefined)
                   const unsupported = name !== 'dae' && optional?.supported === false
+                  const selected = target === name
                   return (
                     <button
                       key={name}
                       type="button"
                       aria-label={name}
-                      aria-pressed={target === name}
+                      aria-pressed={selected}
                       disabled={busy || unsupported}
                       className={cn(
-                        'group flex min-h-[76px] w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/45 focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none',
-                        target === name && 'bg-primary/5',
+                        'relative flex min-h-28 min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-center transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none',
+                        selected
+                          ? 'border-primary bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/20 hover:bg-primary/95'
+                          : 'border-border bg-background hover:border-primary/50 hover:bg-primary/5',
                       )}
                       onClick={() => setTarget(name)}
                       data-core-option={name}
                     >
+                      {selected && (
+                        <Check className="absolute right-1.5 top-1.5 size-3.5 sm:right-2 sm:top-2" aria-hidden="true" />
+                      )}
+                      <span className="block text-[13px] font-semibold sm:text-sm">{name}</span>
                       <span
-                        aria-hidden="true"
                         className={cn(
-                          'flex size-5 shrink-0 items-center justify-center rounded-full border',
-                          target === name
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-muted-foreground/35',
+                          'block whitespace-nowrap text-[10px] sm:text-xs',
+                          selected ? 'text-primary-foreground/85' : 'text-muted-foreground',
                         )}
                       >
-                        {target === name && <Check className="size-3" />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold">{name}</span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">{descriptions[name]}</span>
+                        {descriptions[name]}
                       </span>
                       <span
                         className={cn(
-                          'shrink-0 rounded-md px-2 py-1 text-[11px] font-medium',
-                          current === name
-                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                            : 'bg-muted text-muted-foreground',
+                          'whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium sm:px-2 sm:text-[11px]',
+                          selected
+                            ? 'bg-primary-foreground/15 text-primary-foreground'
+                            : current === name
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-muted text-muted-foreground',
                         )}
                       >
                         {current === name
                           ? '正在使用'
-                          : unsupported
-                            ? '架构不支持'
-                            : name === 'dae' || optional?.installed
-                              ? '可用'
-                              : '需下载'}
+                          : selected
+                            ? '已选择'
+                            : unsupported
+                              ? '架构不支持'
+                              : name === 'dae'
+                                ? '内置'
+                                : optional?.installed
+                                  ? '已安装'
+                                  : '需下载'}
                       </span>
                     </button>
                   )
