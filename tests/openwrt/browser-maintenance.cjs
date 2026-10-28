@@ -74,13 +74,13 @@ async function waitText(locator, pattern) {
     await frame.getByRole('button', { name: /NaiLink 版本/ }).click()
     const dialog = frame.getByRole('dialog')
     await waitText(dialog, /v0\.6\.99/)
-    await control('maintenance',{hold:true})
-    await frame.getByRole('button',{name:'更新到 0.6.99'}).click()
-    await waitText(dialog,/正在备份、安装和恢复服务/)
+    await control('maintenance', { hold: true })
+    await frame.getByRole('button', { name: '更新到 0.6.99' }).click()
+    await waitText(dialog, /正在备份、安装和恢复服务/)
     await control('stop_maintenance')
-    await waitText(dialog,/维护任务被中断/)
-    assert.deepEqual(await gql(resources),before)
-    await control('maintenance',{hold:false})
+    await waitText(dialog, /维护任务被中断/)
+    assert.deepEqual(await gql(resources), before)
+    await control('maintenance', { hold: false })
     await control('maintenance', { fail: 'install' })
     await frame.getByRole('button', { name: '更新到 0.6.99' }).click()
     await waitText(dialog, /已恢复原安装及服务状态/)
@@ -169,7 +169,7 @@ async function waitText(locator, pattern) {
     await page.screenshot({ path: path.join(output, 'mobile-geodata.png') })
     await control('maintenance', { fail: 'download', bump: true })
     await button.tap()
-    await waitText(mobileCard, /下载失败/)
+    await waitText(mobileCard, /GitHub 下载服务器返回异常响应/)
     assert.equal((await control('maintenance')).current, second.current)
     await control('maintenance', { fail: '' })
     await button.tap()
@@ -213,7 +213,7 @@ async function waitText(locator, pattern) {
       realRPC: true,
       realProcd: true,
       nativePackageLifecyclePreservedWorker: true,
-      workerTerminationStopsInstaller:true,
+      workerTerminationStopsInstaller: true,
       updateFailureAndRetry: true,
       nativeRefreshDuringInstall: true,
       privateHTTPSFixture: true,

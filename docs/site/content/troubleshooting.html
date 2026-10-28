@@ -11,7 +11,29 @@
   <li><strong>缺少内核模块：</strong>从当前固件软件源安装匹配 ABI 的依赖，不使用其他固件模块强装。</li>
   <li><strong>空间不足：</strong>同时检查临时目录和 overlay，包含解压与备份所需空间，不只看压缩包大小。</li>
 </ul>
-<h2 id="download">无法解析 GitHub，下载失败</h2>
+<h2 id="download">能检查更新，但下载失败</h2>
+<p>
+  检查版本访问 <code>api.github.com</code>，安装文件通常还要经过 <code>github.com</code> 和
+  <code>release-assets.githubusercontent.com</code>。能显示新版本，不代表这些下载地址都能访问。 0.6.49
+  起增加有限重试、IPv4 回退和 GitHub 官方 API 文件入口，大安装包允许更长传输时间；不使用第三方镜像，也不关闭证书验证。
+</p>
+<p>
+  新版会区分解析失败、证书错误、连接超时、中断、访问限制和文件缺失。下载与校验在停止服务之前完成，失败保留原服务、节点和配置。
+  官方备用入口也可能跳转到同一下载服务器；若该服务器无法访问，仍需处理路由器自身的 DNS 或出口。
+</p>
+<h3 id="legacy-update-download">0.6.38 等旧版本如何获得修复？</h3>
+<p>
+  旧更新器不能在下载新脚本之前修复自己。若版本检查正常、下载一直失败，可在路由器 SSH 通过同仓库官方 API
+  获取新版脚本，执行保留配置的更新：
+</p>
+<pre><code class="language-sh">curl -fL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 \
+  -H 'Accept: application/vnd.github.raw+json' \
+  -o /tmp/nailink-install.sh \
+  https://api.github.com/repos/slobys/NaiLink/contents/openwrt/install.sh?ref=main \
+  &amp;&amp; sh /tmp/nailink-install.sh --install --update-only</code></pre>
+<p>
+  这不是卸载重装。脚本先准备并校验新包和旧版回退包，之后才停止服务与备份。若仍下载失败，不会停用原服务；不要删除节点或反复卸载。
+</p>
 <p>先在<strong>路由器 SSH</strong>中检查：</p>
 <pre><code class="language-sh">nslookup github.com
 nslookup raw.githubusercontent.com</code></pre>

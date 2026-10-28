@@ -1,4 +1,5 @@
 """Exercise menu choices against real BusyBox/UCI in a disposable router."""
+import json
 import os
 import pty
 import re
@@ -29,14 +30,15 @@ class InstallerMenuTests(unittest.TestCase):
     def menu(self, input, *args):
         return self.router.run_router('/bin/sh', '/installer/install.sh', '--menu', *args, input=input)
 
-    def unchanged(self):
+    def unchanged(self, install_entered=False):
         root = self.router.root
         self.assertTrue((root / 'tmp/daemon-running').exists())
         self.assertEqual((root / 'etc/daed/wing.db').read_text(), 'existing database')
         self.assertEqual((root / 'etc/daed/wing.db-wal').read_text(), 'existing WAL')
         self.assertEqual((root / 'etc/config/daed').read_bytes(), self.config)
         self.assertFalse((root / 'root/daed-backups').exists())
-        self.assertFalse((root / 'var/lock/daed-install.lock').exists())
+        if not install_entered:
+            self.assertFalse((root / 'var/lock/daed-install.lock').exists())
 
     def test_terminal_default_shows_menu_without_locking_or_changing_service(self):
         master, slave = pty.openpty()
@@ -277,6 +279,15 @@ esac''')
         self.downloader('uclient-fetch', raw_failure=True)
         self.assert_network_update_preserved_data(self.menu('1\n'))
 
+    def test_firmware_downloader_keeps_ipv6_only_paths_available(self):
+        self.prepare_network_update()
+        self.downloader('uclient-fetch')
+        client = self.router.root / 'bin/uclient-fetch'
+        source = client.read_text()
+        client.write_text(source.replace("output=''; url=''; accept=''", '''case " $* " in *' -4 '*) exit 7 ;; esac
+output=''; url=''; accept='' '''))
+        self.assert_network_update_preserved_data(self.menu('1\n'))
+
     def test_both_origins_fail_preserves_data_and_explains_dns(self):
         self.downloader('curl', all_failure=True)
         self.downloader('uclient-fetch', all_failure=True)
@@ -287,6 +298,73 @@ esac''')
         self.assertIn('DNS', result.stderr)
         self.unchanged()
         self.assertFalse(list((self.router.root / 'tmp').glob('daed-install.*')))
+
+    def asset_api_downloader(self, mode='success'):
+        self.prepare_network_update()
+        assets = sorted(p.name for p in (self.router.root / 'assets').iterdir() if p.is_file())
+        metadata = {'tag_name': 'openwrt-v0.7.99', 'draft': False, 'assets': [
+            {'id': index + 1, 'name': name, 'state': 'uploaded'} for index, name in enumerate(assets)]}
+        if mode == 'wrong_tag': metadata['tag_name'] = 'openwrt-v0.1.0'
+        self.router.write('/fixtures/release.json', json.dumps(metadata))
+        for index, name in enumerate(assets):
+            self.router.write('/fixtures/asset-' + str(index + 1), (self.router.root / 'assets' / name).read_bytes())
+        self.router.script('/bin/curl', '''output=''; url=''; accept=''
+while [ "$#" -gt 0 ]; do
+ case "$1" in
+ --output) output=$2; shift 2 ;;
+ --header) accept=$2; shift 2 ;;
+ http://*|https://*) url=$1; shift ;;
+ *) shift ;;
+ esac
+done
+printf '%s %s\\n' "$url" "$accept" >> /tmp/download-urls
+case "$url" in
+ https://raw.githubusercontent.com/*) cp /fixtures/latest-installer "$output" ;;
+ https://github.com/*) printf partial > "$output"; exit 28 ;;
+ https://api.github.com/repos/slobys/NaiLink/releases/tags/*)
+ [ "$accept" = 'Accept: application/vnd.github+json' ] || exit 45
+ cp /fixtures/release.json "$output" ;;
+ https://api.github.com/repos/slobys/NaiLink/releases/assets/*)
+ [ "$accept" = 'Accept: application/octet-stream' ] || exit 45
+ ''' + ('exit 28' if mode == 'all_fail' else 'cp "/fixtures/asset-${url##*/}" "$output"') + ''' ;;
+ *) exit 44 ;;
+esac''')
+        self.router.script('/bin/uclient-fetch', '[ "$*" = "-T 2 -O /dev/null http://127.0.0.1:2023/" ]')
+
+    def test_release_assets_use_official_api_when_website_downloads_fail(self):
+        self.asset_api_downloader()
+        self.assert_network_update_preserved_data(self.menu('1\n'))
+        urls = (self.router.root / 'tmp/download-urls').read_text()
+        self.assertEqual(urls.count('https://api.github.com/repos/slobys/NaiLink/releases/tags/'), 1)
+        self.assertIn('Accept: application/octet-stream', urls)
+
+    def test_failed_or_wrong_release_api_keeps_existing_service_and_data(self):
+        for mode in ('all_fail', 'wrong_tag'):
+            with self.subTest(mode=mode):
+                self.asset_api_downloader(mode)
+                calls = self.router.root / 'tmp/service-calls'
+                previous_calls = calls.read_text().splitlines() if calls.exists() else []
+                result = self.menu('1\n')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('NAILINK_DOWNLOAD_ERROR=', result.stderr)
+                self.unchanged(install_entered=True)
+                self.assertEqual(self.router.run_router('/bin/sh', '-c', 'exec 9>/var/lock/daed-install.lock; flock -n 9').returncode, 0)
+                next_calls = calls.read_text().splitlines() if calls.exists() else []
+                self.assertTrue(all(call == 'enabled' for call in next_calls[len(previous_calls):]), next_calls)
+                self.assertFalse(list((self.router.root / 'tmp').glob('daed-install.*')))
+
+    def test_ipv4_retry_and_large_package_budget(self):
+        self.prepare_network_update()
+        self.downloader('curl')
+        curl = self.router.root / 'bin/curl'
+        source = curl.read_text()
+        curl.write_text(source.replace("output=''; url=''; accept=''", '''printf '%s\\n' "$*" >> /tmp/download-arguments
+case " $* " in *' -4 '*) ;; *) exit 28 ;; esac
+output=''; url=''; accept='' '''))
+        self.assert_network_update_preserved_data(self.menu('1\n'))
+        arguments = (self.router.root / 'tmp/download-arguments').read_text().splitlines()
+        self.assertTrue(any('--max-time 600' in line and '.ipk' in line for line in arguments))
+        self.assertTrue(any(line.startswith('-4 ') for line in arguments))
 
     def test_stale_installer_cannot_downgrade_script_or_installed_version(self):
         self.router.script('/bin/curl', '''while [ "$#" -gt 0 ]; do

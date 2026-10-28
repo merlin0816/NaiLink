@@ -238,7 +238,7 @@ func (m *maintenanceManager) installOptionalCore(ctx context.Context, job *maint
 	}
 	address := "https://github.com/slobys/NaiLink/releases/download/" + releaseTag + "/" + release.Archive
 	if err = m.fetch(ctx, address, archive, 128<<20); err != nil {
-		return errors.New("download_failed")
+		return errors.New(downloadFailureCode(err))
 	}
 	if err = m.save(job, "verifying"); err != nil {
 		return err
@@ -484,8 +484,8 @@ func (m *maintenanceManager) installExtra(ctx context.Context, job *maintenanceJ
 	if err = m.save(job, "downloading"); err != nil {
 		return err
 	}
-	if m.fetch(ctx, "https://github.com/slobys/NaiLink/releases/download/"+routercore.ExtraRelease+"/"+release.Archive, archive, 128<<20) != nil {
-		return errors.New("download_failed")
+	if err = m.fetch(ctx, "https://github.com/slobys/NaiLink/releases/download/"+routercore.ExtraRelease+"/"+release.Archive, archive, 128<<20); err != nil {
+		return errors.New(downloadFailureCode(err))
 	}
 	f, err := os.Open(archive)
 	if err != nil {

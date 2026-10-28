@@ -67,6 +67,18 @@ export const maintenanceMessages: Record<string, string> = {
   permission_denied: '当前账户没有维护权限，请使用管理员账户重新登录。',
   worker_unavailable: '维护任务未能启动，请检查插件安装和 procd 服务。',
   download_failed: '下载失败，请检查路由器自身的 DNS、HTTPS 连接和系统时间。原有数据保留。',
+  download_dns:
+    '路由器无法解析 GitHub 下载地址。请检查路由器自身的 DNS；电脑能上网不代表路由器能下载。原有服务和数据保留。',
+  download_tls:
+    'HTTPS 证书或 TLS 握手失败。请检查路由器时间、CA 证书和网络拦截；不要关闭证书验证。原有服务和数据保留。',
+  download_timeout:
+    '下载连接或传输超时，已尝试备用下载方式。请稍后重试；仍失败可按在线文档手动更新，原有服务和数据保留。',
+  download_connection: '下载连接中断，重试后仍未完成。请检查路由器到 GitHub 下载服务器的连接。原有服务和数据保留。',
+  download_rate_limited: 'GitHub 拒绝了下载请求或触发访问限流，请稍后再试。原有服务和数据保留。',
+  download_asset_missing: '目标版本的下载文件不存在或尚未发布完整，请重新检查更新。原有服务和数据保留。',
+  download_http: 'GitHub 下载服务器返回异常响应，请稍后重试或按在线文档手动更新。原有服务和数据保留。',
+  download_redirect: '下载跳转到未授权地址，已停止更新。请检查网络拦截；原有服务和数据保留。',
+  download_invalid: '下载内容为空、过大或与目标发布不一致，已停止更新。原有服务和数据保留。',
   invalid_release: '没有找到完整、可用的发布版本，请稍后重试。',
   checksum_failed: '文件校验失败，已停止更新。',
   invalid_installer: '安装脚本版本或格式异常，已停止更新。',

@@ -37,6 +37,16 @@ function MaintenanceProgress({ type }: { type: 'update' | 'geodata' }) {
                 : '插件更新完成'
             : phases[job.phase] || '维护任务正在执行'}
       </p>
+      {job.state === 'error' && job.code?.startsWith('download_') && (
+        <a
+          className="mt-2 inline-flex min-h-11 items-center underline underline-offset-4"
+          href="https://slobys.github.io/NaiLink/troubleshooting.html#download"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          查看更新故障排查
+        </a>
+      )}
       {job.state === 'success' && job.action === 'update' && (
         <Button size="sm" className="mt-3 min-h-11" onClick={() => window.parent.location.reload()}>
           重新加载新版本
@@ -86,6 +96,7 @@ export function RouterVersion() {
         size="sm"
         className="tabular-nums"
         onClick={show}
+        disabled={query.isPending}
         aria-label={`NaiLink 版本 ${data?.current || '读取中'}，检查更新`}
       >
         <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} aria-hidden="true" />

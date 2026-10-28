@@ -192,10 +192,10 @@ func (m *maintenanceManager) updateGeodata(ctx context.Context, job *maintenance
 	}
 	for _, name := range []string{"geoip.dat", "geosite.dat"} {
 		if err = m.fetch(ctx, base+name+".sha256sum", filepath.Join(stage, name+".sha256sum"), 4096); err != nil {
-			return errors.New("download_failed")
+			return errors.New(downloadFailureCode(err))
 		}
 		if err = m.fetch(ctx, base+name, filepath.Join(stage, name), 64<<20); err != nil {
-			return errors.New("download_failed")
+			return errors.New(downloadFailureCode(err))
 		}
 		sums, _ := os.ReadFile(filepath.Join(stage, name+".sha256sum"))
 		digest, e := checksumFor(sums, name)

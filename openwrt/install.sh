@@ -7,7 +7,7 @@ set -eu
 umask 077
 
 REPOSITORY=slobys/NaiLink
-release=openwrt-v0.6.48
+release=openwrt-v0.6.49
 asset_dir=''
 mode=install
 action=install
@@ -77,6 +77,7 @@ show_menu() {
 }
 download_https() {
 	dl_output=$1; dl_url=$2; dl_timeout=$3; dl_accept=${4:-}
+	dl_error=download_failed
 	case "$dl_url" in https://*) ;; *) return 1 ;; esac
 	# Some firmware curl builds/resolvers fail while uclient-fetch still works.
 	# Never keep a partial response or disable HTTPS certificate verification.
@@ -84,16 +85,52 @@ download_https() {
 		set -- --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
 			--connect-timeout 10 --max-time "$dl_timeout" --user-agent 'NaiLink-installer'
 		[ -z "$dl_accept" ] || set -- "$@" --header "$dl_accept"
-		if curl "$@" --output "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
+		dl_exit=0
+		curl "$@" --output "$dl_output" "$dl_url" || dl_exit=$?
+		if [ "$dl_exit" = 0 ] && [ -s "$dl_output" ]; then return 0; fi
 		rm -f "$dl_output"
+		case "$dl_exit" in
+			6) dl_error=download_dns ;;
+			28) dl_error=download_timeout ;;
+			35|51|58|60|77|83|90|91) dl_error=download_tls ;;
+			7|18|52|55|56) dl_error=download_connection ;;
+			22) dl_error=download_http ;;
+		esac
+		case "$dl_exit" in 6|7|18|28|35|52|55|56)
+			if curl -4 "$@" --output "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
+			rm -f "$dl_output" ;;
+		esac
 	fi
 	if command -v uclient-fetch >/dev/null 2>&1; then
 		set -- -T "$dl_timeout" -U 'NaiLink-installer'
 		[ -z "$dl_accept" ] || set -- "$@" "--header=$dl_accept"
 		if uclient-fetch "$@" -O "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
 		rm -f "$dl_output"
+		if uclient-fetch -4 "$@" -O "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
+		rm -f "$dl_output"
 	fi
 	return 1
+}
+
+# Alternate GitHub-owned asset route; keep the exact release, checksums and
+# certificate verification. Cache only private metadata for this transaction.
+download_release_asset() {
+	ra_name=$1; ra_output=$2; ra_timeout=$3
+	if download_https "$ra_output" "https://github.com/$REPOSITORY/releases/download/$release/$ra_name" "$ra_timeout"; then return 0; fi
+	command -v jsonfilter >/dev/null 2>&1 || return 1
+	ra_metadata="$stage/.github-$release.json"
+	if [ ! -s "$ra_metadata" ]; then
+		if ! download_https "$ra_metadata" "https://api.github.com/repos/$REPOSITORY/releases/tags/$release" 60 'Accept: application/vnd.github+json'; then return 1; fi
+	fi
+	if [ "$(jsonfilter -i "$ra_metadata" -e '@.tag_name' 2>/dev/null)" != "$release" ] || \
+		[ "$(jsonfilter -i "$ra_metadata" -e '@.draft' 2>/dev/null)" != false ]; then
+		dl_error=download_invalid; return 1
+	fi
+	ra_id=$(jsonfilter -i "$ra_metadata" -e "@.assets[@.name=\"$ra_name\"].id" 2>/dev/null) || ra_id=''
+	case "$ra_id" in ''|0|*[!0-9]*) dl_error=download_asset_missing; return 1 ;; esac
+	[ "${#ra_id}" -le 19 ] || { dl_error=download_invalid; return 1; }
+	[ "$(jsonfilter -i "$ra_metadata" -e "@.assets[@.name=\"$ra_name\"].state" 2>/dev/null)" = uploaded ] || { dl_error=download_invalid; return 1; }
+	download_https "$ra_output" "https://api.github.com/repos/$REPOSITORY/releases/assets/$ra_id" "$ra_timeout" 'Accept: application/octet-stream'
 }
 install_latest() {
 	stage=$(mktemp -d /tmp/daed-install.XXXXXX) || fail 'Cannot create staging directory.'
@@ -371,8 +408,12 @@ fetch() {
 	if [ -n "$asset_dir" ]; then
 		cp "$asset_dir/$name" "$stage/$name" || fail "Missing local asset: $name"
 	else
-		download_https "$stage/$name" "https://github.com/$REPOSITORY/releases/download/$release/$name" 180 || \
-			fail "Cannot download $name. Check router DNS, HTTPS access, CA certificates and release assets. Existing service/data were not changed."
+		asset_timeout=180
+		case "$name" in *.ipk|*.apk) asset_timeout=600 ;; esac
+		if ! download_release_asset "$name" "$stage/$name" "$asset_timeout"; then
+			printf 'NAILINK_DOWNLOAD_ERROR=%s\n' "$dl_error" >&2
+			fail "Cannot download $name. Both official GitHub routes were tried when available. Check router DNS, HTTPS access, CA certificates and system time. Existing service/data were not changed."
+		fi
 	fi
 }
 

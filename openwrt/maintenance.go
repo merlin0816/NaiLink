@@ -6,11 +6,14 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -68,7 +71,7 @@ type maintenanceStatus struct {
 }
 type maintenanceManager struct {
 	stateDir, configDir, versionFile, lockFile, installLock, initScript string
-	coreBinary, mihomoBinary, extraRoot                                               string
+	coreBinary, mihomoBinary, extraRoot                                 string
 	fetch                                                               func(context.Context, string, string, int64) error
 	run                                                                 func(context.Context, ...string) ([]byte, error)
 	graph                                                               func(context.Context, string, any) error
@@ -265,7 +268,9 @@ func (m *maintenanceManager) start(action string) maintenanceStatus {
 		return maintenanceStatus{Code: "unsafe_state"}
 	}
 	var previous maintenanceJob
-	if core := m.coreStatus(); core.Phase == "switching" { return maintenanceStatus{Code: "busy"} }
+	if core := m.coreStatus(); core.Phase == "switching" {
+		return maintenanceStatus{Code: "busy"}
+	}
 	var pending maintenanceGeodataReceipt
 	if readMaintenanceJSON(filepath.Join(m.configDir, "geodata", "activation.json"), &pending) == nil && pending.State == "applying" {
 		return maintenanceStatus{Code: "apply_unconfirmed"}
@@ -340,6 +345,9 @@ func (m *maintenanceManager) worker(ctx context.Context, expectedID string) erro
 	return m.save(&job, "finished")
 }
 func maintenanceCode(err error) string {
+	if code := downloadFailureCode(err); code != "download_failed" {
+		return code
+	}
 	if code := coreMaintenanceCode(err.Error()); code != "" {
 		return code
 	}
@@ -370,7 +378,7 @@ func (m *maintenanceManager) getJSON(ctx context.Context, address string, value 
 	file.Close()
 	defer os.Remove(name)
 	if err = m.fetch(ctx, address, name, 4<<20); err != nil {
-		return errors.New("download_failed")
+		return errors.New(downloadFailureCode(err))
 	}
 	data, err := os.ReadFile(name)
 	if err != nil || json.Unmarshal(data, value) != nil {
@@ -453,7 +461,7 @@ func (m *maintenanceManager) installUpdate(ctx context.Context, job *maintenance
 	base := "https://github.com/slobys/NaiLink/releases/download/" + job.Target + "/"
 	for _, name := range []string{"SHA256SUMS", "install.sh"} {
 		if err = m.fetch(ctx, base+name, filepath.Join(stage, name), 512<<10); err != nil {
-			return errors.New("download_failed")
+			return errors.New(downloadFailureCode(err))
 		}
 	}
 	if err = m.save(job, "verifying"); err != nil {
@@ -491,6 +499,11 @@ func (m *maintenanceManager) installUpdate(ctx context.Context, job *maintenance
 		if strings.Contains(text, "Restoring verified previous native packages") {
 			return errors.New("rollback_failed")
 		}
+		for _, code := range downloadFailureCodes {
+			if strings.Contains(text, "NAILINK_DOWNLOAD_ERROR="+code+"\n") {
+				return errors.New(code)
+			}
+		}
 		for _, item := range []struct{ token, code string }{{"Another NaiLink", "busy"}, {"Existing managed install required", "install_missing"}, {"Online update refused", "version_changed"}, {"Unsupported CPU", "unsupported"}, {"Compatibility check failed", "unsupported"}, {"Supported:", "unsupported"}, {"space", "no_space"}, {"Cannot back up", "backup_failed"}, {"Checksum mismatch", "checksum_failed"}, {"Cannot download", "download_failed"}, {"Management HTTP did not become ready", "service_not_ready"}} {
 			if strings.Contains(text, item.token) {
 				return errors.New(item.code)
@@ -507,20 +520,82 @@ func (m *maintenanceManager) installUpdate(ctx context.Context, job *maintenance
 	return nil
 }
 
-func maintenanceDownload(ctx context.Context, address, destination string, limit int64) error {
-	allowed := func(u *url.URL) bool {
-		if u.Scheme != "https" || u.User != nil || u.Port() != "" && u.Port() != "443" {
-			return false
+var downloadFailureCodes = []string{"download_dns", "download_tls", "download_timeout", "download_connection", "download_rate_limited", "download_asset_missing", "download_http", "download_redirect", "download_invalid"}
+
+func downloadFailureCode(err error) string {
+	if err == nil {
+		return "download_failed"
+	}
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		for _, code := range downloadFailureCodes {
+			if current.Error() == code {
+				return code
+			}
 		}
-		switch u.Hostname() {
-		case "github.com", "api.github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com":
-			return true
-		}
+	}
+	var dns *net.DNSError
+	var cert *tls.CertificateVerificationError
+	var unknown x509.UnknownAuthorityError
+	var invalid x509.CertificateInvalidError
+	var hostname x509.HostnameError
+	var network net.Error
+	var file *os.PathError
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "interrupted"
+	case errors.Is(err, syscall.ENOSPC):
+		return "no_space"
+	case errors.As(err, &file):
+		return "state_failed"
+	case errors.As(err, &dns):
+		return "download_dns"
+	case errors.As(err, &cert), errors.As(err, &unknown), errors.As(err, &invalid), errors.As(err, &hostname):
+		return "download_tls"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "download_timeout"
+	case errors.As(err, &network) && network.Timeout():
+		return "download_timeout"
+	case errors.As(err, &network), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
+		return "download_connection"
+	}
+	return "download_failed"
+}
+
+func maintenanceDownloadAllowed(u *url.URL) bool {
+	if u.Scheme != "https" || u.User != nil || u.Port() != "" && u.Port() != "443" {
 		return false
 	}
+	switch u.Hostname() {
+	case "github.com", "api.github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com":
+		return true
+	}
+	return false
+}
+
+// A bounded retry stays on the original HTTPS origin. A second address-family
+// attempt also handles IPv6 that connects but stalls during TLS/HTTP.
+func maintenanceDownloadAttempts(ctx context.Context, address, destination string, limit int64, accept string) error {
+	var err error
+	for _, ipv4 := range []bool{false, true} {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		err = maintenanceDownloadAttempt(ctx, address, destination, limit, accept, ipv4)
+		if err == nil {
+			return nil
+		}
+		code := downloadFailureCode(err)
+		if code != "download_dns" && code != "download_timeout" && code != "download_connection" && code != "download_http" {
+			break
+		}
+	}
+	return err
+}
+
+func maintenanceDownload(ctx context.Context, address, destination string, limit int64) error {
 	parsed, err := url.Parse(address)
-	if err != nil || !allowed(parsed) {
-		return errors.New("download_failed")
+	if err != nil || !maintenanceDownloadAllowed(parsed) || limit <= 0 {
+		return errors.New("download_redirect")
 	}
 	// Keep metadata requests short, but allow a bounded large component transfer
 	// on slow router links. Header/TLS deadlines still reject stalled starts.
@@ -530,18 +605,86 @@ func maintenanceDownload(ctx context.Context, address, destination string, limit
 	}
 	ctx, cancel := context.WithTimeout(ctx, transferTimeout)
 	defer cancel()
+	err = maintenanceDownloadAttempts(ctx, address, destination, limit, "application/vnd.github+json")
+	if err == nil || ctx.Err() != nil {
+		return err
+	}
+	// The GitHub website and its public API have different reachability on some
+	// router networks. Resolve an exact asset ID from the pinned release; never
+	// trust a returned download URL or use a third-party mirror.
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if parsed.Hostname() != "github.com" || parsed.RawQuery != "" || parsed.Fragment != "" || len(parts) != 6 || parts[2] != "releases" || parts[3] != "download" {
+		return err
+	}
+	repository := parts[0] + "/" + parts[1]
+	if repository != "slobys/NaiLink" && repository != "Loyalsoldier/v2ray-rules-dat" {
+		return err
+	}
+	if !dataTag.MatchString(parts[4]) || !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$`).MatchString(parts[5]) {
+		return err
+	}
+	meta, createErr := os.CreateTemp(filepath.Dir(destination), ".release-*")
+	if createErr != nil {
+		return createErr
+	}
+	meta.Close()
+	defer os.Remove(meta.Name())
+	metadata := "https://api.github.com/repos/" + repository + "/releases/tags/" + parts[4]
+	if fetchErr := maintenanceDownloadAttempts(ctx, metadata, meta.Name(), 4<<20, "application/vnd.github+json"); fetchErr != nil {
+		return fetchErr
+	}
+	var release struct {
+		Tag    string `json:"tag_name"`
+		Draft  bool   `json:"draft"`
+		Assets []struct {
+			ID    int64  `json:"id"`
+			Name  string `json:"name"`
+			State string `json:"state"`
+		} `json:"assets"`
+	}
+	data, readErr := os.ReadFile(meta.Name())
+	if readErr != nil {
+		return readErr
+	}
+	if json.Unmarshal(data, &release) != nil || release.Draft || release.Tag != parts[4] {
+		return errors.New("download_invalid")
+	}
+	id := int64(0)
+	for _, asset := range release.Assets {
+		if asset.Name == parts[5] {
+			if id != 0 || asset.ID <= 0 || asset.State != "uploaded" {
+				return errors.New("download_invalid")
+			}
+			id = asset.ID
+		}
+	}
+	if id == 0 {
+		return errors.New("download_asset_missing")
+	}
+	assetURL := "https://api.github.com/repos/" + repository + "/releases/assets/" + strconv.FormatInt(id, 10)
+	return maintenanceDownloadAttempts(ctx, assetURL, destination, limit, "application/octet-stream")
+}
+
+func maintenanceDownloadAttempt(ctx context.Context, address, destination string, limit int64, accept string, ipv4 bool) error {
 	transport := http.DefaultTransport
 	if base, ok := transport.(*http.Transport); ok {
 		copy := base.Clone()
 		copy.Proxy = nil
+		dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+		copy.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			if ipv4 {
+				network = "tcp4"
+			}
+			return dialer.DialContext(ctx, network, address)
+		}
 		copy.ResponseHeaderTimeout = 20 * time.Second
 		copy.TLSHandshakeTimeout = 10 * time.Second
 		transport = copy
 		defer copy.CloseIdleConnections()
 	}
-	client := &http.Client{Transport: transport, Timeout: transferTimeout, CheckRedirect: func(r *http.Request, via []*http.Request) error {
-		if len(via) > 5 || !allowed(r.URL) {
-			return errors.New("redirect_rejected")
+	client := &http.Client{Transport: transport, CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		if len(via) > 5 || !maintenanceDownloadAllowed(r.URL) {
+			return errors.New("download_redirect")
 		}
 		return nil
 	}}
@@ -550,29 +693,51 @@ func maintenanceDownload(ctx context.Context, address, destination string, limit
 		return err
 	}
 	request.Header.Set("User-Agent", "NaiLink-maintenance")
-	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Accept", accept)
 	response, err := client.Do(request)
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode != 200 || response.ContentLength > limit {
-		return errors.New("download_failed")
+	if response.StatusCode == 403 || response.StatusCode == 429 {
+		return errors.New("download_rate_limited")
 	}
-	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if response.StatusCode == 404 {
+		return errors.New("download_asset_missing")
+	}
+	if response.StatusCode != 200 {
+		return errors.New("download_http")
+	}
+	if response.ContentLength > limit {
+		return errors.New("download_invalid")
+	}
+	file, err := os.CreateTemp(filepath.Dir(destination), ".transfer-*")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(file.Name())
 	size, err := io.Copy(file, io.LimitReader(response.Body, limit+1))
-	if err == nil {
-		err = file.Sync()
+	if err != nil {
+		file.Close()
+		return err
 	}
+	if response.ContentLength > 0 && size != response.ContentLength {
+		file.Close()
+		return io.ErrUnexpectedEOF
+	}
+	if size == 0 || size > limit {
+		file.Close()
+		return errors.New("download_invalid")
+	}
+	err = file.Sync()
 	closeErr := file.Close()
-	if err != nil || closeErr != nil || size == 0 || size > limit {
-		os.Remove(destination)
-		return errors.New("download_failed")
+	if err != nil {
+		return err
 	}
-	return nil
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(file.Name(), destination)
 }
 
 type boundedOutput struct{ data []byte }

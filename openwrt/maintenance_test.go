@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +161,29 @@ func TestMaintenanceInstallerChecksumAndPreservedData(t *testing.T) {
 	}
 }
 
+func TestMaintenanceDownloadFailuresNeverRunInstaller(t *testing.T) {
+	for _, code := range append([]string{"download_failed"}, downloadFailureCodes...) {
+		t.Run(code, func(t *testing.T) {
+			m := maintenanceFixture(t)
+			writeMaintenanceJSON(filepath.Join(m.stateDir, "latest.json"), releaseInfo{"0.6.49", "openwrt-v0.6.49", m.now().Unix()})
+			sentinel := filepath.Join(m.configDir, "nodes.db")
+			os.WriteFile(sentinel, []byte("preserve nodes and pending settings"), 0600)
+			m.fetch = func(context.Context, string, string, int64) error { return errors.New(code) }
+			m.run = func(_ context.Context, args ...string) ([]byte, error) {
+				if args[0] != m.initScript {
+					t.Fatal("installer/service invoked after failed download", args[0])
+				}
+				return nil, nil
+			}
+			result := runFixtureJob(t, m, "update")
+			data, _ := os.ReadFile(sentinel)
+			if result.Job.State != "error" || result.Job.Code != code || m.current() != "0.6.32-1" || string(data) != "preserve nodes and pending settings" {
+				t.Fatal("unsafe download failure", result.Job)
+			}
+		})
+	}
+}
+
 func TestMaintenanceUnsafeStateOldTargetAndMissingWorker(t *testing.T) {
 	m := maintenanceFixture(t)
 	if m.start("update").Code != "check_required" {
@@ -299,10 +324,147 @@ func TestMaintenanceGeodataAtomicActivationAndFailurePaths(t *testing.T) {
 type maintenanceTransport func(*http.Request) (*http.Response, error)
 
 func (f maintenanceTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func downloadResponse(request *http.Request, status int, text string) *http.Response {
+	return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(text)), ContentLength: int64(len(text)), Request: request}
+}
+
+func TestMaintenanceOfficialAssetFallback(t *testing.T) {
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	address := "https://github.com/slobys/NaiLink/releases/download/openwrt-v0.6.49/install.sh"
+	for _, test := range []struct{ name, metadata, code string }{
+		{"valid", `{"tag_name":"openwrt-v0.6.49","draft":false,"assets":[{"id":42,"name":"install.sh","state":"uploaded","url":"https://untrusted.test/ignored"}]}`, ""},
+		{"wrong tag", `{"tag_name":"openwrt-v0.6.48"}`, "download_invalid"},
+		{"draft", `{"tag_name":"openwrt-v0.6.49","draft":true}`, "download_invalid"},
+		{"missing", `{"tag_name":"openwrt-v0.6.49","assets":[]}`, "download_asset_missing"},
+		{"duplicate", `{"tag_name":"openwrt-v0.6.49","assets":[{"id":42,"name":"install.sh","state":"uploaded"},{"id":43,"name":"install.sh","state":"uploaded"}]}`, "download_invalid"},
+		{"unpublished", `{"tag_name":"openwrt-v0.6.49","assets":[{"id":42,"name":"install.sh","state":"new"}]}`, "download_invalid"},
+		{"invalid", `<html>blocked</html>`, "download_invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := []string{}
+			http.DefaultTransport = maintenanceTransport(func(r *http.Request) (*http.Response, error) {
+				calls = append(calls, r.URL.String())
+				switch r.URL.String() {
+				case address:
+					return downloadResponse(r, 503, "unavailable"), nil
+				case "https://api.github.com/repos/slobys/NaiLink/releases/tags/openwrt-v0.6.49":
+					return downloadResponse(r, 200, test.metadata), nil
+				case "https://api.github.com/repos/slobys/NaiLink/releases/assets/42":
+					if r.Header.Get("Accept") != "application/octet-stream" {
+						t.Fatal("API asset was requested as JSON")
+					}
+					return downloadResponse(r, 302, ""), nil
+				case "https://release-assets.githubusercontent.com/fixture":
+					return downloadResponse(r, 200, "verified asset"), nil
+				default:
+					t.Fatal("unexpected download origin", r.URL)
+					return nil, errors.New("unexpected")
+				}
+			})
+			base := http.DefaultTransport
+			http.DefaultTransport = maintenanceTransport(func(r *http.Request) (*http.Response, error) {
+				response, err := base.RoundTrip(r)
+				if response != nil && response.StatusCode == 302 {
+					response.Header.Set("Location", "https://release-assets.githubusercontent.com/fixture")
+				}
+				return response, err
+			})
+			destination := filepath.Join(t.TempDir(), "asset")
+			os.WriteFile(destination, []byte("existing"), 0600)
+			err := maintenanceDownload(context.Background(), address, destination, 512<<10)
+			data, _ := os.ReadFile(destination)
+			if test.code == "" {
+				if err != nil || string(data) != "verified asset" {
+					t.Fatal(err, string(data))
+				}
+			} else if err == nil || downloadFailureCode(err) != test.code || string(data) != "existing" {
+				t.Fatal("unsafe failed download", err, string(data))
+			}
+			if len(calls) > 5 {
+				t.Fatal("unbounded retries", calls)
+			}
+		})
+	}
+}
+
+type interruptedDownload struct{ sent bool }
+
+func (b *interruptedDownload) Read(p []byte) (int, error) {
+	if !b.sent {
+		b.sent = true
+		return copy(p, "partial"), nil
+	}
+	return 0, io.ErrUnexpectedEOF
+}
+func (*interruptedDownload) Close() error { return nil }
+
+func TestMaintenanceRetriesReplaceOnlyCompleteDownloads(t *testing.T) {
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	for _, recover := range []bool{false, true} {
+		t.Run(fmt.Sprint(recover), func(t *testing.T) {
+			calls := 0
+			http.DefaultTransport = maintenanceTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if recover && calls == 2 {
+					return downloadResponse(r, 200, "complete"), nil
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: &interruptedDownload{}, ContentLength: -1, Request: r}, nil
+			})
+			directory := t.TempDir()
+			destination := filepath.Join(directory, "asset")
+			os.WriteFile(destination, []byte("existing"), 0600)
+			err := maintenanceDownload(context.Background(), "https://api.github.com/fixture", destination, 100)
+			data, _ := os.ReadFile(destination)
+			if recover {
+				if err != nil || string(data) != "complete" {
+					t.Fatal(err, string(data))
+				}
+			} else if downloadFailureCode(err) != "download_connection" || string(data) != "existing" {
+				t.Fatal(err, string(data))
+			}
+			files, _ := os.ReadDir(directory)
+			if calls != 2 || len(files) != 1 {
+				t.Fatal("retry/temporary file leak", calls, files)
+			}
+		})
+	}
+}
+
+func TestMaintenanceDownloadErrorsAreSafeAndSpecific(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		code string
+	}{
+		{&url.Error{Op: "Get", URL: "https://private.test/?token=secret", Err: &net.DNSError{Err: "secret", Name: "private.test"}}, "download_dns"},
+		{context.DeadlineExceeded, "download_timeout"},
+		{io.ErrUnexpectedEOF, "download_connection"},
+		{&url.Error{Err: errors.New("download_redirect")}, "download_redirect"},
+		{errors.New("https://private.test/?token=secret"), "download_failed"},
+	} {
+		if code := maintenanceCode(errors.New(downloadFailureCode(test.err))); code != test.code {
+			t.Fatal(code, test.code)
+		}
+	}
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	for status, code := range map[int]string{403: "download_rate_limited", 429: "download_rate_limited", 404: "download_asset_missing", 500: "download_http"} {
+		http.DefaultTransport = maintenanceTransport(func(r *http.Request) (*http.Response, error) { return downloadResponse(r, status, "not an asset"), nil })
+		if err := maintenanceDownload(context.Background(), "https://api.github.com/fixture", filepath.Join(t.TempDir(), "asset"), 100); downloadFailureCode(err) != code {
+			t.Fatal(status, err)
+		}
+	}
+}
 func TestMaintenanceLargeTransferBudgetAndCancellation(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
-	for _, test := range []struct { name string; limit int64; minimum, maximum time.Duration }{
+	for _, test := range []struct {
+		name             string
+		limit            int64
+		minimum, maximum time.Duration
+	}{
 		{"metadata", 512 << 10, 2 * time.Minute, 3 * time.Minute},
 		{"optional core", 128 << 20, 9 * time.Minute, 10 * time.Minute},
 	} {
@@ -310,10 +472,14 @@ func TestMaintenanceLargeTransferBudgetAndCancellation(t *testing.T) {
 			http.DefaultTransport = maintenanceTransport(func(r *http.Request) (*http.Response, error) {
 				deadline, ok := r.Context().Deadline()
 				remaining := time.Until(deadline)
-				if !ok || remaining < test.minimum || remaining > test.maximum { t.Fatal("incorrect transfer budget", remaining) }
+				if !ok || remaining < test.minimum || remaining > test.maximum {
+					t.Fatal("incorrect transfer budget", remaining)
+				}
 				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("verified by caller")), Request: r}, nil
 			})
-			if err := maintenanceDownload(context.Background(), "https://github.com/test", filepath.Join(t.TempDir(), "download"), test.limit); err != nil { t.Fatal(err) }
+			if err := maintenanceDownload(context.Background(), "https://github.com/test", filepath.Join(t.TempDir(), "download"), test.limit); err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -323,8 +489,12 @@ func TestMaintenanceLargeTransferBudgetAndCancellation(t *testing.T) {
 		return nil, r.Context().Err()
 	})
 	name := filepath.Join(t.TempDir(), "cancelled")
-	if maintenanceDownload(ctx, "https://github.com/test", name, 128<<20) == nil { t.Fatal("caller cancellation ignored") }
-	if _, err := os.Stat(name); !os.IsNotExist(err) { t.Fatal("cancelled download changed destination") }
+	if maintenanceDownload(ctx, "https://github.com/test", name, 128<<20) == nil {
+		t.Fatal("caller cancellation ignored")
+	}
+	if _, err := os.Stat(name); !os.IsNotExist(err) {
+		t.Fatal("cancelled download changed destination")
+	}
 }
 func TestMaintenanceDownloadBoundsOriginsAndOutput(t *testing.T) {
 	for _, address := range []string{"http://github.com/test", "https://evil.test/test", "https://github.com:444/test", "https://user@github.com/test"} {

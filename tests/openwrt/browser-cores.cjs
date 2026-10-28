@@ -195,7 +195,7 @@ async function checkManualLatency(page, context, touch, screenshot) {
     await checkHorizontalChoices(dialog, 'sing-box')
     await control('maintenance', { fail: 'download' })
     await dialog.getByRole('button', { name: /下载并安装 sing-box/ }).click()
-    await waitText(dialog, /下载失败/)
+    await waitText(dialog, /GitHub 下载服务器返回异常响应/)
     await control('maintenance', { fail: '' })
     await dialog.getByRole('button', { name: /下载并安装 sing-box/ }).click()
     await waitText(dialog, /内核已安装/)

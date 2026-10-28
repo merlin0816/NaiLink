@@ -1,9 +1,16 @@
 # NaiLink · 奶油互联
 
 支持 OpenWrt、ImmortalWrt、iStoreOS 的现代 LuCI，提供 x86_64 / ARM64 及试验性 ARMv7 / MIPS32 / MIPSel32 的
-IPK 和 APK v3 安装包。当前测试版：[openwrt-v0.6.48](https://github.com/slobys/NaiLink/releases/tag/openwrt-v0.6.48)。
+IPK 和 APK v3 安装包。当前测试版：[openwrt-v0.6.49](https://github.com/slobys/NaiLink/releases/tag/openwrt-v0.6.49)。
 
 本项目从 0.6.14 起更名为 NaiLink（奶油互联），侧边栏显示 **NaiLink**。0.6.13 及更早版本显示 **Daed**。沿用原有包名、服务、路径和配置，可继续保留数据升级。
+
+## 0.6.49 在线更新下载恢复
+
+- 下载中断时有限重试并尝试 IPv4，发布网站不可用时尝试固定版本的 GitHub 官方 API 文件入口；目标与校验和不变，不使用第三方镜像。
+- 大 IPK/APK 传输期限从 3 分钟延至 10 分钟；在线任务仍有总期限。新包、回退包下载与校验失败均在停服前退出。
+- 细分 DNS、TLS/证书、超时、连接中断、HTTP/限流、文件缺失与异常内容；只返回固定代码，不向页面暴露下载 URL 或签名参数。
+- 下载通过临时文件完成后替换，失败不覆盖已有目标文件。0.6.38 等旧更新器需先通过[备用脚本](https://slobys.github.io/NaiLink/troubleshooting.html#download)升级一次。
 
 ## 0.6.44 mihomo DNS 连接稳定性
 
