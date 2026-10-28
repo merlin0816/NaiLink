@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -179,6 +180,76 @@ func TestMaintenanceDownloadFailuresNeverRunInstaller(t *testing.T) {
 			data, _ := os.ReadFile(sentinel)
 			if result.Job.State != "error" || result.Job.Code != code || m.current() != "0.6.32-1" || string(data) != "preserve nodes and pending settings" {
 				t.Fatal("unsafe download failure", result.Job)
+			}
+		})
+	}
+}
+
+func TestMaintenanceInstallerPreparationFailuresStaySpecific(t *testing.T) {
+	for _, item := range []struct{ output, code string }{
+		{"Firmware package feed refresh failed", "package_feed_failed"},
+		{"Package preflight failed", "package_preflight_failed"},
+		{"Update preparation timed out", "preparation_timeout"},
+		{"Firmware package feed refresh failed\nprevious installation and service state restored", "update_rolled_back"},
+	} {
+		t.Run(item.code, func(t *testing.T) {
+			m := maintenanceFixture(t)
+			writeMaintenanceJSON(filepath.Join(m.stateDir, "latest.json"), releaseInfo{"0.6.50", "openwrt-v0.6.50", m.now().Unix()})
+			script := []byte("#!/bin/sh\nrelease=openwrt-v0.6.50\n")
+			hash := sha256.Sum256(script)
+			base := "https://github.com/slobys/NaiLink/releases/download/openwrt-v0.6.50/"
+			m.fetch = fixtureFetch(map[string][]byte{base + "install.sh": script, base + "SHA256SUMS": []byte(hex.EncodeToString(hash[:]) + "  install.sh\n")})
+			m.run = func(_ context.Context, args ...string) ([]byte, error) {
+				if args[0] == m.initScript || len(args) > 1 && args[1] == "-n" {
+					return nil, nil
+				}
+				return []byte(item.output), errors.New("exit status 1")
+			}
+			result := runFixtureJob(t, m, "update")
+			if result.Job.State != "error" || result.Job.Code != item.code || m.current() != "0.6.32-1" {
+				t.Fatal("preparation failure lost or changed installed version", result.Job)
+			}
+		})
+	}
+}
+
+func TestMaintenancePreparationBudgetIncludesInitialDownloads(t *testing.T) {
+	for _, minutes := range []int{4, 8, 20} {
+		t.Run(strconv.Itoa(minutes), func(t *testing.T) {
+			m := maintenanceFixture(t)
+			writeMaintenanceJSON(filepath.Join(m.stateDir, "latest.json"), releaseInfo{"0.6.50", "openwrt-v0.6.50", m.now().Unix()})
+			script := []byte("#!/bin/sh\nrelease=openwrt-v0.6.50\n")
+			hash := sha256.Sum256(script)
+			base := "https://github.com/slobys/NaiLink/releases/download/openwrt-v0.6.50/"
+			m.fetch = fixtureFetch(map[string][]byte{base + "install.sh": script, base + "SHA256SUMS": []byte(hex.EncodeToString(hash[:]) + "  install.sh\n")})
+			installed := false
+			m.run = func(_ context.Context, args ...string) ([]byte, error) {
+				if args[0] == m.initScript || len(args) > 1 && args[1] == "-n" {
+					return nil, nil
+				}
+				if args[len(args)-2] != "--prepare-timeout" {
+					t.Fatal("missing preparation budget")
+				}
+				seconds, err := strconv.Atoi(args[len(args)-1])
+				if err != nil || seconds <= 0 || seconds > 900 || seconds > (minutes-5)*60 {
+					t.Fatal("installer deadline leaves no recovery reserve", seconds)
+				}
+				installed = true
+				return nil, os.WriteFile(m.versionFile, []byte("0.6.50-1\n"), 0600)
+			}
+			status := m.start("update")
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(minutes)*time.Minute)
+			defer cancel()
+			if err := m.worker(ctx, status.Job.ID); err != nil {
+				t.Fatal(err)
+			}
+			result := m.status()
+			if minutes <= 5 {
+				if installed || result.Job.Code != "preparation_timeout" || m.current() != "0.6.32-1" {
+					t.Fatal("late preparation started an install", result.Job)
+				}
+			} else if !installed || result.Job.State != "success" {
+				t.Fatal("bounded preparation failed", result.Job)
 			}
 		})
 	}

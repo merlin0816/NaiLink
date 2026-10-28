@@ -85,6 +85,9 @@ export const maintenanceMessages: Record<string, string> = {
   install_failed: '安装未完成，节点和配置备份已保留，请查看运行日志并按安装文档恢复。',
   update_rolled_back: '更新未完成，已恢复原安装及服务状态；节点和配置备份保留。请检查日志后再试。',
   install_missing: '现有插件已被移除，在线更新已停止，没有重新安装。',
+  package_feed_failed: '固件软件源刷新失败，插件尚未停止。请检查固件自身的软件源和网络后重试，现有数据保留。',
+  package_preflight_failed: '软件包依赖检查未通过，插件尚未停止。请检查固件软件源及依赖，现有数据保留。',
+  preparation_timeout: '安装准备耗时过长，已在停服前退出。请稍后重试或按文档手动更新，现有服务和数据保留。',
   version_changed: '安装期间版本已发生变化，请重新检查更新。',
   unsupported: '当前固件、架构或内核未通过兼容性检查，未强制安装。',
   no_space: '可用存储空间不足，请清理临时文件或备份后重试。',
@@ -144,6 +147,23 @@ export const maintenanceMessages: Record<string, string> = {
 
 export function jobActive(job?: MaintenanceJob) {
   return job?.state === 'queued' || job?.state === 'running'
+}
+
+export function updateTargetInstalled(job: MaintenanceJob | undefined, current: string) {
+  if (job?.action !== 'update' || job.state !== 'error' || !/^openwrt-v\d+\.\d+\.\d+$/.test(job.target || ''))
+    return false
+  const target = job.target!.slice('openwrt-v'.length)
+  const installed = current.split('-')[0]
+  return installed === target || newerVersion(installed, target)
+}
+
+export function releaseCheckExpired(latest: MaintenanceStatus['latest'], now = Date.now()) {
+  return (
+    !latest ||
+    !Number.isFinite(latest.checked) ||
+    now - latest.checked * 1000 > 300000 ||
+    latest.checked * 1000 > now + 60000
+  )
 }
 
 export function coreProblemLabel(value: string) {

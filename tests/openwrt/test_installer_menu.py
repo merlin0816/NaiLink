@@ -337,6 +337,24 @@ esac''')
         urls = (self.router.root / 'tmp/download-urls').read_text()
         self.assertEqual(urls.count('https://api.github.com/repos/slobys/NaiLink/releases/tags/'), 1)
         self.assertIn('Accept: application/octet-stream', urls)
+        # Only the first asset re-probes the failed website (normal + IPv4).
+        self.assertEqual(sum(line.startswith('https://github.com/') for line in urls.splitlines()), 2)
+
+    def test_preferred_api_failure_can_recover_through_website(self):
+        self.asset_api_downloader()
+        assets = sorted(p.name for p in (self.router.root/'assets').iterdir() if p.is_file())
+        checker = str(assets.index('daed-check') + 1)
+        client = self.router.root/'bin/curl'
+        source = client.read_text().replace(
+            'https://github.com/*) printf partial > "$output"; exit 28 ;;',
+            'https://github.com/*) case "$url" in */manifest.tsv) exit 28;; *) cp "/assets/${url##*/}" "$output";; esac ;;',
+        ).replace(
+            'cp "/fixtures/asset-${url##*/}" "$output"',
+            '[ "${url##*/}" != "'+checker+'" ] || exit 22; cp "/fixtures/asset-${url##*/}" "$output"',
+        )
+        client.write_text(source)
+        self.assert_network_update_preserved_data(self.menu('1\n'))
+        self.assertIn('/daed-check ', (self.router.root/'tmp/download-urls').read_text())
 
     def test_failed_or_wrong_release_api_keeps_existing_service_and_data(self):
         for mode in ('all_fail', 'wrong_tag'):

@@ -6,9 +6,36 @@ import {
   maintenanceAccessExpired,
   newerVersion,
   readMaintenance,
+  releaseCheckExpired,
+  updateTargetInstalled,
 } from './router-maintenance'
 
 describe('maintenance state', () => {
+  it('recognizes an installed target without hiding rollback or other maintenance failures', () => {
+    const job = {
+      id: 'previous',
+      action: 'update' as const,
+      state: 'error' as const,
+      phase: 'finished',
+      started: 1,
+      updated: 2,
+      target: 'openwrt-v0.6.49',
+      code: 'download_failed',
+    }
+    expect(updateTargetInstalled(job, '0.6.49-1')).toBe(true)
+    expect(updateTargetInstalled(job, '0.6.50-1')).toBe(true)
+    expect(updateTargetInstalled(job, '0.6.48-1')).toBe(false)
+    expect(updateTargetInstalled({ ...job, action: 'geodata' }, '0.6.49-1')).toBe(false)
+    expect(updateTargetInstalled({ ...job, state: 'running' }, '0.6.49-1')).toBe(false)
+    expect(updateTargetInstalled({ ...job, target: undefined }, '0.6.49-1')).toBe(false)
+  })
+  it('refreshes old release checks on open, including after clock correction', () => {
+    const latest = { version: '0.6.49', tag: 'openwrt-v0.6.49', checked: 1000 }
+    expect(releaseCheckExpired(latest, 1000000)).toBe(false)
+    expect(releaseCheckExpired(latest, 1300001)).toBe(true)
+    expect(releaseCheckExpired(latest, 930000)).toBe(true)
+    expect(releaseCheckExpired(undefined)).toBe(true)
+  })
   it('pauses statistics only during a live core switch and resumes on success or rollback', () => {
     const status = { success: true, current: '0.6.47' }
     const job = {

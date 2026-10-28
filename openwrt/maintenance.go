@@ -355,7 +355,7 @@ func maintenanceCode(err error) string {
 	}
 	// Only stable codes cross the UI boundary; network/installer errors may
 	// contain full URLs, query strings or configuration paths.
-	for _, code := range []string{"busy", "download_failed", "invalid_release", "checksum_failed", "invalid_installer", "install_failed", "install_missing", "version_changed", "unsupported", "no_space", "backup_failed", "service_not_ready", "custom_geodata", "invalid_geodata", "apply_failed", "apply_unconfirmed", "rollback_failed", "configuration_modified", "backend_unavailable", "unsafe_state", "state_failed", "update_rolled_back", "interrupted"} {
+	for _, code := range []string{"busy", "download_failed", "invalid_release", "checksum_failed", "invalid_installer", "install_failed", "install_missing", "package_feed_failed", "package_preflight_failed", "preparation_timeout", "version_changed", "unsupported", "no_space", "backup_failed", "service_not_ready", "custom_geodata", "invalid_geodata", "apply_failed", "apply_unconfirmed", "rollback_failed", "configuration_modified", "backend_unavailable", "unsafe_state", "state_failed", "update_rolled_back", "interrupted"} {
 		if err.Error() == code {
 			return code
 		}
@@ -486,13 +486,26 @@ func (m *maintenanceManager) installUpdate(ctx context.Context, job *maintenance
 	if _, err = m.run(ctx, "/bin/sh", "-n", installer); err != nil {
 		return errors.New("invalid_installer")
 	}
+	prepareSeconds := 900
+	if deadline, limited := ctx.Deadline(); limited {
+		// Initial script/checksum downloads already consumed worker time. Keep
+		// five minutes for installing and recovering, rather than resetting the
+		// preparation clock when the shell starts.
+		remaining := int(time.Until(deadline).Seconds()) - 300
+		if remaining <= 0 {
+			return errors.New("preparation_timeout")
+		}
+		if remaining < prepareSeconds {
+			prepareSeconds = remaining
+		}
+	}
 	if err = m.save(job, "installing"); err != nil {
 		return errors.New("state_failed")
 	}
 	if !versionNewer(strings.TrimPrefix(job.Target, "openwrt-v"), m.current()) {
 		return errors.New("version_changed")
 	}
-	output, err := m.run(ctx, "/bin/sh", installer, "--install", "--update-only", "--release", job.Target)
+	output, err := m.run(ctx, "/bin/sh", installer, "--install", "--update-only", "--release", job.Target, "--prepare-timeout", strconv.Itoa(prepareSeconds))
 	if err != nil {
 		text := string(output)
 		if strings.Contains(text, "previous installation and service state restored") {
@@ -506,7 +519,7 @@ func (m *maintenanceManager) installUpdate(ctx context.Context, job *maintenance
 				return errors.New(code)
 			}
 		}
-		for _, item := range []struct{ token, code string }{{"Another NaiLink", "busy"}, {"Existing managed install required", "install_missing"}, {"Online update refused", "version_changed"}, {"Unsupported CPU", "unsupported"}, {"Compatibility check failed", "unsupported"}, {"Supported:", "unsupported"}, {"space", "no_space"}, {"Cannot back up", "backup_failed"}, {"Checksum mismatch", "checksum_failed"}, {"Cannot download", "download_failed"}, {"Management HTTP did not become ready", "service_not_ready"}} {
+		for _, item := range []struct{ token, code string }{{"Another NaiLink", "busy"}, {"Existing managed install required", "install_missing"}, {"Online update refused", "version_changed"}, {"Firmware package feed refresh failed", "package_feed_failed"}, {"Package preflight failed", "package_preflight_failed"}, {"Update preparation timed out", "preparation_timeout"}, {"Unsupported CPU", "unsupported"}, {"Compatibility check failed", "unsupported"}, {"Supported:", "unsupported"}, {"space", "no_space"}, {"Cannot back up", "backup_failed"}, {"Checksum mismatch", "checksum_failed"}, {"Cannot download", "download_failed"}, {"Management HTTP did not become ready", "service_not_ready"}} {
 			if strings.Contains(text, item.token) {
 				return errors.New(item.code)
 			}

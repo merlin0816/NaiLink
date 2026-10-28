@@ -3,41 +3,51 @@ import { useRef, useState } from 'react'
 import { Button } from '~/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '~/components/ui/dialog'
 import { useRouterMaintenance } from '~/hooks/useRouterMaintenance'
-import { jobActive, maintenanceMessages, newerVersion } from '~/utils/router-maintenance'
+import {
+  jobActive,
+  maintenanceMessages,
+  newerVersion,
+  releaseCheckExpired,
+  updateTargetInstalled,
+} from '~/utils/router-maintenance'
 
 function MaintenanceProgress({ type }: { type: 'update' | 'geodata' }) {
   const { query, mutation } = useRouterMaintenance()
   const job = query.data?.job
   if (!job || (type === 'geodata' ? job.action !== 'geodata' : !['update', 'check'].includes(job.action))) return null
+  const installedSinceFailure = type === 'update' && updateTargetInstalled(job, query.data?.current || '')
+  const failed = job.state === 'error' && !installedSinceFailure
   const phases: Record<string, string> = {
     queued: '任务已排队',
     checking: '正在检查发布版本与配置',
     downloading: '正在下载更新文件',
     verifying: '正在校验文件',
-    installing: '正在备份、安装和恢复服务，请勿断电',
+    installing: '正在下载校验安装包、备份并升级，请勿断电',
     applying: '正在加载规则库',
     finished: '已完成',
   }
   return (
     <div
-      role={job.state === 'error' ? 'alert' : 'status'}
-      className={`rounded-lg border p-3 text-sm ${job.state === 'error' ? 'border-destructive/30 text-destructive' : 'bg-muted/40'}`}
+      role={failed ? 'alert' : 'status'}
+      className={`rounded-lg border p-3 text-sm ${failed ? 'border-destructive/30 text-destructive' : 'bg-muted/40'}`}
     >
       <p className="flex items-center gap-2">
         {jobActive(job) && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
-        {job.state === 'error'
-          ? maintenanceMessages[job.code || ''] || maintenanceMessages.operation_failed
-          : job.state === 'success'
-            ? job.action === 'check'
-              ? '版本检查完成'
-              : type === 'geodata'
-                ? job.code === 'already_latest'
-                  ? '规则库已是最新，无需重新加载'
-                  : '规则库已更新'
-                : '插件更新完成'
-            : phases[job.phase] || '维护任务正在执行'}
+        {installedSinceFailure
+          ? '上次在线任务未完成；当前安装版本已达到该次目标，可重新检查更新。'
+          : job.state === 'error'
+            ? maintenanceMessages[job.code || ''] || maintenanceMessages.operation_failed
+            : job.state === 'success'
+              ? job.action === 'check'
+                ? '版本检查完成'
+                : type === 'geodata'
+                  ? job.code === 'already_latest'
+                    ? '规则库已是最新，无需重新加载'
+                    : '规则库已更新'
+                  : '插件更新完成'
+              : phases[job.phase] || '维护任务正在执行'}
       </p>
-      {job.state === 'error' && job.code?.startsWith('download_') && (
+      {failed && job.code?.startsWith('download_') && (
         <a
           className="mt-2 inline-flex min-h-11 items-center underline underline-offset-4"
           href="https://slobys.github.io/NaiLink/troubleshooting.html#download"
@@ -87,7 +97,14 @@ export function RouterVersion() {
     loadedVersion.current ??= data?.current
     const justUpdated =
       data?.job?.action === 'update' && data.job.state === 'success' && data.current !== loadedVersion.current
-    if (!busy && !justUpdated && !latest && data?.job?.state !== 'error') mutation.mutate('check')
+    if (
+      !busy &&
+      !query.isError &&
+      !justUpdated &&
+      releaseCheckExpired(latest) &&
+      (data?.job?.state !== 'error' || updateTargetInstalled(data.job, data.current))
+    )
+      mutation.mutate('check')
   }
   return (
     <>
@@ -123,11 +140,17 @@ export function RouterVersion() {
               {mutation.error.message}
             </p>
           )}
-          {!busy && query.data?.job?.state !== 'error' && latest && !available && (
-            <p className="text-sm text-muted-foreground">当前已是最新发布版本。</p>
-          )}
+          {!busy &&
+            (data?.job?.state !== 'error' || updateTargetInstalled(data.job, data.current)) &&
+            latest &&
+            !available && <p className="text-sm text-muted-foreground">当前已是最新发布版本。</p>}
           <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => mutation.mutate('check')}>
+            <Button
+              variant="outline"
+              className="min-h-11"
+              disabled={busy || query.isError}
+              onClick={() => mutation.mutate('check')}
+            >
               检查更新
             </Button>
             <Button

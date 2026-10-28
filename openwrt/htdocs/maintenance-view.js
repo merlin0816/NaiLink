@@ -44,12 +44,16 @@ return baseclass.extend({
       checking: '检查发布版本',
       downloading: '下载更新文件',
       verifying: '校验更新文件',
-      installing: '备份、安装和恢复服务',
+      installing: '正在下载校验安装包、备份并升级',
     }
     var hint = E('p', { role: 'status', 'aria-live': 'polite' }, phases[data.job.phase] || '正在读取更新进度')
     poll.add(function () {
       return load().then(function (next) {
-        if (!next || !active(next)) {
+        if (!next) {
+          dom.content(hint, '暂时无法读取进度，正在等待连接恢复；后台任务仍会继续。持续无响应时可重新登录后台。')
+          return
+        }
+        if (!active(next)) {
           window.location.reload()
           return
         }

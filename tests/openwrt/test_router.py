@@ -128,7 +128,7 @@ remove)
   esac
   /fixtures/remove "$p" || exit "$?"
  done ;;
-update) exit 0 ;;
+update) [ ! -e /tmp/feed-fail ] ;;
 install) /fixtures/install ;;
 *) exit 1 ;;
 esac''')
@@ -200,11 +200,16 @@ info)
  if [ "$#" -gt 1 ]; then [ -f "/tmp/installed-$3" ]; else
   for p in /tmp/installed-*; do [ ! -f "$p" ] || echo "${p##*/installed-}"; done
  fi ;;
-update) exit 0 ;;
+update) [ ! -e /tmp/feed-fail ] ;;
 add)
  case "$2" in
  --simulate) [ ! -e /tmp/preflight-fail ] ;;
- --no-network) exit 0 ;;
+ --no-network)
+  case "$*" in
+  *--simulate*) [ ! -e /tmp/preflight-fail ] && [ ! -e /tmp/offline-preflight-fail ] ;;
+  *.apk*) /fixtures/install ;;
+  *) exit 0 ;;
+  esac ;;
  *) /fixtures/install ;;
  esac ;;
 del) shift; /fixtures/remove "$@" ;;

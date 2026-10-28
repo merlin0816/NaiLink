@@ -7,7 +7,7 @@ set -eu
 umask 077
 
 REPOSITORY=slobys/NaiLink
-release=openwrt-v0.6.49
+release=openwrt-v0.6.50
 asset_dir=''
 mode=install
 action=install
@@ -25,6 +25,8 @@ rollback_ready=0
 backup_verified=0
 was_running=0
 was_autostart=0
+prepare_deadline=''
+prepare_timeout=900
 
 fail() { printf 'NaiLink: %s\n' "$*" >&2; exit 1; }
 usage() {
@@ -33,6 +35,7 @@ Usage: sh install.sh [--install | --uninstall | --reinstall] [--release TAG] [--
   --menu        Open the Chinese install/update, uninstall and check menu.
   --install     Install or upgrade this script's release without the menu.
   --update-only Require an existing managed install; never install fresh.
+  --prepare-timeout SECONDS  Online preparation budget, from 1 to 900 seconds.
   --uninstall   Back up data, remove NaiLink packages and clear its config/data.
   --reinstall   Verify new assets, then back up/uninstall and install fresh.
   --check       Read-only compatibility check; no package/repository changes.
@@ -75,18 +78,36 @@ show_menu() {
 		esac
 	done
 }
+download_clock() {
+	# Linux uptime is monotonic even while NTP corrects the wall clock.
+	if [ -r /proc/uptime ]; then
+		IFS= read -r dl_uptime < /proc/uptime
+		printf '%s\n' "${dl_uptime%%.*}"
+	else
+		date +%s
+	fi
+}
+download_remaining() {
+	dl_remaining=$((dl_deadline - $(download_clock)))
+	[ "$dl_remaining" -le "$dl_timeout" ] || dl_remaining=$dl_timeout
+	[ "$dl_remaining" -gt 0 ] || { dl_error=download_timeout; return 1; }
+}
 download_https() {
 	dl_output=$1; dl_url=$2; dl_timeout=$3; dl_accept=${4:-}
+	# The whole file shares a deadline, including client/family/origin fallback.
+	# Giving each retry a fresh ten minutes can outlive the maintenance worker.
+	dl_deadline=${5:-$(($(download_clock) + dl_timeout))}
 	dl_error=download_failed
 	case "$dl_url" in https://*) ;; *) return 1 ;; esac
 	# Some firmware curl builds/resolvers fail while uclient-fetch still works.
 	# Never keep a partial response or disable HTTPS certificate verification.
 	if command -v curl >/dev/null 2>&1; then
 		set -- --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
-			--connect-timeout 10 --max-time "$dl_timeout" --user-agent 'NaiLink-installer'
+			--connect-timeout 10 --user-agent 'NaiLink-installer'
 		[ -z "$dl_accept" ] || set -- "$@" --header "$dl_accept"
 		dl_exit=0
-		curl "$@" --output "$dl_output" "$dl_url" || dl_exit=$?
+		download_remaining || return 1
+		curl "$@" --max-time "$dl_remaining" --output "$dl_output" "$dl_url" || dl_exit=$?
 		if [ "$dl_exit" = 0 ] && [ -s "$dl_output" ]; then return 0; fi
 		rm -f "$dl_output"
 		case "$dl_exit" in
@@ -97,16 +118,19 @@ download_https() {
 			22) dl_error=download_http ;;
 		esac
 		case "$dl_exit" in 6|7|18|28|35|52|55|56)
-			if curl -4 "$@" --output "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
+			download_remaining || return 1
+			if curl -4 "$@" --max-time "$dl_remaining" --output "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
 			rm -f "$dl_output" ;;
 		esac
 	fi
 	if command -v uclient-fetch >/dev/null 2>&1; then
-		set -- -T "$dl_timeout" -U 'NaiLink-installer'
+		set -- -U 'NaiLink-installer'
 		[ -z "$dl_accept" ] || set -- "$@" "--header=$dl_accept"
-		if uclient-fetch "$@" -O "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
+		download_remaining || return 1
+		if uclient-fetch "$@" -T "$dl_remaining" -O "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
 		rm -f "$dl_output"
-		if uclient-fetch -4 "$@" -O "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
+		download_remaining || return 1
+		if uclient-fetch -4 "$@" -T "$dl_remaining" -O "$dl_output" "$dl_url" && [ -s "$dl_output" ]; then return 0; fi
 		rm -f "$dl_output"
 	fi
 	return 1
@@ -114,13 +138,11 @@ download_https() {
 
 # Alternate GitHub-owned asset route; keep the exact release, checksums and
 # certificate verification. Cache only private metadata for this transaction.
-download_release_asset() {
-	ra_name=$1; ra_output=$2; ra_timeout=$3
-	if download_https "$ra_output" "https://github.com/$REPOSITORY/releases/download/$release/$ra_name" "$ra_timeout"; then return 0; fi
+download_api_asset() {
 	command -v jsonfilter >/dev/null 2>&1 || return 1
 	ra_metadata="$stage/.github-$release.json"
 	if [ ! -s "$ra_metadata" ]; then
-		if ! download_https "$ra_metadata" "https://api.github.com/repos/$REPOSITORY/releases/tags/$release" 60 'Accept: application/vnd.github+json'; then return 1; fi
+		if ! download_https "$ra_metadata" "https://api.github.com/repos/$REPOSITORY/releases/tags/$release" 60 'Accept: application/vnd.github+json' "$ra_deadline"; then return 1; fi
 	fi
 	if [ "$(jsonfilter -i "$ra_metadata" -e '@.tag_name' 2>/dev/null)" != "$release" ] || \
 		[ "$(jsonfilter -i "$ra_metadata" -e '@.draft' 2>/dev/null)" != false ]; then
@@ -130,7 +152,22 @@ download_release_asset() {
 	case "$ra_id" in ''|0|*[!0-9]*) dl_error=download_asset_missing; return 1 ;; esac
 	[ "${#ra_id}" -le 19 ] || { dl_error=download_invalid; return 1; }
 	[ "$(jsonfilter -i "$ra_metadata" -e "@.assets[@.name=\"$ra_name\"].state" 2>/dev/null)" = uploaded ] || { dl_error=download_invalid; return 1; }
-	download_https "$ra_output" "https://api.github.com/repos/$REPOSITORY/releases/assets/$ra_id" "$ra_timeout" 'Accept: application/octet-stream'
+	download_https "$ra_output" "https://api.github.com/repos/$REPOSITORY/releases/assets/$ra_id" "$ra_timeout" 'Accept: application/octet-stream' "$ra_deadline"
+}
+download_release_asset() {
+	ra_name=$1; ra_output=$2; ra_timeout=$3
+	ra_deadline=$(($(download_clock) + ra_timeout))
+	if [ -n "$prepare_deadline" ] && [ "$prepare_deadline" -lt "$ra_deadline" ]; then ra_deadline=$prepare_deadline; fi
+	# Once the official API works, avoid re-probing a broken website for every
+	# package. A failed preferred route still falls back to the other origin.
+	if [ "${prefer_asset_api:-0}" = 1 ]; then
+		if download_api_asset; then return 0; fi
+	else
+		if download_https "$ra_output" "https://github.com/$REPOSITORY/releases/download/$release/$ra_name" "$ra_timeout" '' "$ra_deadline"; then return 0; fi
+		if download_api_asset; then prefer_asset_api=1; return 0; fi
+		return 1
+	fi
+	download_https "$ra_output" "https://github.com/$REPOSITORY/releases/download/$release/$ra_name" "$ra_timeout" '' "$ra_deadline"
 }
 install_latest() {
 	stage=$(mktemp -d /tmp/daed-install.XXXXXX) || fail 'Cannot create staging directory.'
@@ -194,6 +231,10 @@ while [ "$#" -gt 0 ]; do
 	--asset-dir) [ "$#" -ge 2 ] || fail 'Missing asset directory.'; asset_dir=$2; shift 2 ;;
 	--menu) menu=1; shift ;;
 	--update-only) update_only=1; explicit_action=1; shift ;;
+	--prepare-timeout)
+		[ "$#" -ge 2 ] || fail 'Missing preparation timeout.'
+		if ! printf '%s\n' "$2" | grep -Eq '^[1-9][0-9]{0,2}$' || [ "$2" -gt 900 ]; then fail 'Invalid preparation timeout.'; fi
+		prepare_timeout=$2; shift 2 ;;
 	--install|--uninstall|--reinstall) action=${1#--}; explicit_action=1; shift ;;
 	--check) mode=check; explicit_action=1; shift ;;
 	--dry-run) mode=dry-run; explicit_action=1; shift ;;
@@ -397,6 +438,7 @@ uninstall_daed() {
 
 if [ "$action" = uninstall ]; then uninstall_daed; exit 0; fi
 stage=$(mktemp -d /tmp/daed-install.XXXXXX) || fail 'Cannot create staging directory.'
+[ "$update_only" != 1 ] || prepare_deadline=$(($(download_clock) + prepare_timeout))
 if [ -n "$asset_dir" ]; then
 	[ -d "$asset_dir" ] || fail 'Asset directory does not exist.'
 	asset_dir=$(cd "$asset_dir" && pwd -P)
@@ -534,17 +576,31 @@ esac
 
 # Native package managers resolve kmods against the router's own feeds/kernel ABI.
 # Never force dependencies or add a feed for a different firmware.
-if [ "$mode" != dry-run ]; then
-	if [ "$format" = apk ]; then apk update; else opkg update; fi
+apk_offline=0
+if [ "$format" = apk ] && apk add --no-network --simulate --allow-untrusted "$stage/$runtime_file" "$stage/$plugin_file" >"$stage/preflight.log" 2>&1; then
+	# Installed/cached dependencies need no feed refresh or late network access.
+	# A new dependency still takes the normal firmware-feed path below.
+	apk_offline=1
+	cat "$stage/preflight.log"
+fi
+if [ "$mode" != dry-run ] && [ "$apk_offline" = 0 ]; then
+	if [ "$format" = apk ]; then
+		apk update || fail 'Firmware package feed refresh failed. Existing service/data were not changed.'
+	else
+		opkg update || fail 'Firmware package feed refresh failed. Existing service/data were not changed.'
+	fi
 fi
 # APK resolves architecture and dependencies before stopping/uninstalling NaiLink.
 # --simulate opens the database read-only and uses existing index caches.
 # Do not add --no-network: APK would mask uncached packages in HTTP(S) feeds.
-if [ "$format" = apk ]; then
+if [ "$format" = apk ] && [ "$apk_offline" = 0 ]; then
 	apk add --simulate --allow-untrusted "$stage/$runtime_file" "$stage/$plugin_file" || fail 'Package preflight failed. NaiLink was not stopped or uninstalled. Check firmware feeds/dependencies; dry runs require cached indexes.'
 fi
 [ "$mode" != dry-run ] || { printf 'NaiLink: Dry run passed; no packages, configuration or services changed.\n'; exit 0; }
 [ "$update_only" != 1 ] || prepare_rollback
+if [ -n "$prepare_deadline" ] && [ "$(download_clock)" -ge "$prepare_deadline" ]; then
+	fail 'Update preparation timed out. Existing service/data were not changed.'
+fi
 if [ "$action" = reinstall ]; then uninstall_daed; stopped=1; fi
 was_running=0
 was_autostart=0
@@ -572,7 +628,11 @@ fi
 packages_changed=1
 if [ "$format" = apk ]; then
 	# Local release packages are unsigned; this flag is scoped to this transaction.
-	apk add --allow-untrusted "$stage/$runtime_file" "$stage/$plugin_file"
+	if [ "$apk_offline" = 1 ]; then
+		apk add --no-network --allow-untrusted "$stage/$runtime_file" "$stage/$plugin_file"
+	else
+		apk add --allow-untrusted "$stage/$runtime_file" "$stage/$plugin_file"
+	fi
 else
 	opkg install "$stage/$runtime_file" "$stage/$plugin_file"
 fi

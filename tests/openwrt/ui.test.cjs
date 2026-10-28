@@ -19,7 +19,7 @@ function load(name, protocol = 'http:', page = 'dashboard') {
   let networkFailure = false;
   let result = { running: true, listen: '127.0.0.1:2023', checks: [] };
   const context = vm.createContext({
-    window: { location: { protocol, pathname: '/cgi-bin/luci/admin/services/daed/' + page } },
+    window: { location: { protocol, pathname: '/cgi-bin/luci/admin/services/daed/' + page, reload: () => calls.push(['reload']) } },
     L: { env: { sessionid: '1234567890abcdef1234567890abcdef' } },
     AbortController, setTimeout, clearTimeout,
     fetch: async (url, options) => { fetchCalls.push([url, options]); if (networkFailure) throw new Error('offline'); return response || {ok: authorized, status: authorized ? 204 : 401, headers: new Headers()}; },
@@ -106,6 +106,24 @@ test('an active update survives a full-page refresh while the proxy is stopped',
   assert.ok(tree.textContent.includes('正在更新 NaiLink'));
   assert.equal(elements(tree,'button')[0].attrs.style,'min-height:44px');
   assert.equal(module.polls.length,1);
+});
+
+test('update progress preserves the page during temporary RPC failure and reloads after recovery', async () => {
+  const module = load(panelModule);
+  const job = {action:'update',state:'running',phase:'installing'};
+  const tree = module.view.render({running:false,maintenance:{success:true,job}});
+  module.setFailure(true);
+  await module.polls[0]();
+  assert.ok(tree.textContent.includes('正在等待连接恢复'));
+  assert.equal(module.calls.filter(call=>call[0]==='reload').length,0);
+  module.setFailure(false);
+  module.setResult({success:true,job:{...job,phase:'verifying'}});
+  await module.polls[0]();
+  assert.ok(tree.textContent.includes('校验更新文件'));
+  assert.equal(module.calls.filter(call=>call[0]==='reload').length,0);
+  module.setResult({success:true,job:{...job,state:'success',phase:'finished'}});
+  await module.polls[0]();
+  assert.equal(module.calls.filter(call=>call[0]==='reload').length,1);
 });
 
 test('dashboard authorizes using the LuCI session in a same-origin POST body', async () => {
