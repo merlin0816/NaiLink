@@ -434,6 +434,9 @@ func TestMaintenanceRetriesReplaceOnlyCompleteDownloads(t *testing.T) {
 }
 
 func TestMaintenanceDownloadErrorsAreSafeAndSpecific(t *testing.T) {
+	if code := maintenanceCode(context.DeadlineExceeded); strings.HasPrefix(code, "download_") {
+		t.Fatal("non-download timeout was mislabeled", code)
+	}
 	for _, test := range []struct {
 		err  error
 		code string

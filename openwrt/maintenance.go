@@ -345,8 +345,10 @@ func (m *maintenanceManager) worker(ctx context.Context, expectedID string) erro
 	return m.save(&job, "finished")
 }
 func maintenanceCode(err error) string {
-	if code := downloadFailureCode(err); code != "download_failed" {
-		return code
+	for _, code := range downloadFailureCodes {
+		if err.Error() == code {
+			return code
+		}
 	}
 	if code := coreMaintenanceCode(err.Error()); code != "" {
 		return code
