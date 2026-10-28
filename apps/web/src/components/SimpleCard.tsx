@@ -83,18 +83,19 @@ export function SimpleCard({
     <Fragment>
       <Card
         withBorder
-        shadow="sm"
+        shadow="none"
         padding="none"
         className={cn(
-          'transition-all duration-200',
-          selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background border-primary',
+          'advanced-profile min-w-0 transition-[border-color,background-color] duration-150 motion-reduce:transition-none',
+          selected && 'border-primary bg-primary/5',
         )}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex min-w-0 flex-wrap items-center justify-between">
           {isEditing ? (
-            <div className="flex-1 flex items-center gap-2 p-2">
+            <div className="flex min-w-0 flex-1 basis-32 items-center gap-2 p-2">
               <Input
                 ref={inputRef}
+                aria-label={t('actions.rename')}
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -102,7 +103,13 @@ export function SimpleCard({
                 className="h-8 text-sm font-semibold"
               />
               <SimpleTooltip label={t('actions.confirm')}>
-                <Button variant="ghost" size="xs" onClick={handleSaveEdit} className="shrink-0">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  aria-label={t('actions.confirm')}
+                  onClick={handleSaveEdit}
+                  className="shrink-0"
+                >
                   <Check className="h-4 w-4 text-primary" />
                 </Button>
               </SimpleTooltip>
@@ -110,6 +117,7 @@ export function SimpleCard({
                 <Button
                   variant="ghost"
                   size="xs"
+                  aria-label={t('actions.cancel')}
                   onClick={handleCancelEdit}
                   onMouseDown={(e) => e.preventDefault()}
                   className="shrink-0"
@@ -122,26 +130,28 @@ export function SimpleCard({
             <button
               type="button"
               className={cn(
-                'flex-1 p-3 text-left transition-colors rounded-l-xl',
+                'min-w-0 flex-1 basis-24 rounded-xl p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                 selected ? 'bg-primary/10' : 'hover:bg-accent',
               )}
               onClick={onSelect}
+              aria-pressed={selected}
+              title={name}
             >
               <div className="flex items-center gap-2">
                 {selected && (
                   <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground shrink-0">
-                    <Check className="w-3 h-3" strokeWidth={3} />
+                    <Check className="w-3 h-3" strokeWidth={3} aria-hidden="true" />
                   </div>
                 )}
-                <h4 className={cn('font-semibold', selected && 'text-primary')}>{name}</h4>
+                <h4 className={cn('truncate font-semibold', selected && 'text-primary')}>{name}</h4>
               </div>
             </button>
           )}
 
-          <div className="flex items-center gap-2 p-3">
+          <div className="advanced-profile-actions ml-auto flex shrink-0 items-center gap-1 p-2">
             {!isEditing && onRename && (
               <SimpleTooltip label={t('actions.rename')}>
-                <Button variant="ghost" size="xs" onClick={handleStartEdit}>
+                <Button variant="ghost" size="xs" aria-label={t('actions.rename')} onClick={handleStartEdit}>
                   <Type className="h-4 w-4" />
                 </Button>
               </SimpleTooltip>
@@ -149,7 +159,7 @@ export function SimpleCard({
 
             {onDuplicate && (
               <SimpleTooltip label={t('actions.duplicate')}>
-                <Button variant="ghost" size="xs" onClick={onDuplicate}>
+                <Button variant="ghost" size="xs" aria-label={t('actions.duplicate')} onClick={onDuplicate}>
                   <Copy className="h-4 w-4" />
                 </Button>
               </SimpleTooltip>
@@ -159,7 +169,12 @@ export function SimpleCard({
 
             {children && (
               <SimpleTooltip label={t('actions.viewDetails')}>
-                <Button variant="ghost" size="xs" onClick={() => setOpenedDetailsModal(true)}>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  aria-label={t('actions.viewDetails')}
+                  onClick={() => setOpenedDetailsModal(true)}
+                >
                   <Eye className="h-4 w-4" />
                 </Button>
               </SimpleTooltip>
@@ -170,6 +185,7 @@ export function SimpleCard({
                 <Button
                   variant="ghost"
                   size="xs"
+                  aria-label={t('actions.remove')}
                   className="text-destructive hover:text-destructive"
                   onClick={() => setOpenedConfirmModal(true)}
                 >

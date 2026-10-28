@@ -47,6 +47,7 @@ export function DNS() {
               <Button
                 variant="ghost"
                 size="xs"
+                aria-label={t('actions.settings')}
                 onClick={() => {
                   setEditingDNS({
                     id: dns.id,

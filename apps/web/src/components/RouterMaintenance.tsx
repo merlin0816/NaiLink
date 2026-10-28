@@ -1,5 +1,5 @@
-import { Download, LoaderCircle, RefreshCw } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { ChevronDown, Database, Download, LoaderCircle, RefreshCw } from 'lucide-react'
+import { useId, useRef, useState } from 'react'
 import { Button } from '~/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '~/components/ui/dialog'
 import { useRouterMaintenance } from '~/hooks/useRouterMaintenance'
@@ -170,28 +170,90 @@ export function RouterVersion() {
 
 export function RouterGeodata() {
   const { query, mutation, busy } = useRouterMaintenance()
+  const [expanded, setExpanded] = useState(false)
+  const detailsId = useId()
   const data = query.data?.geodata
+  const updating = mutation.isPending || (query.data?.job?.action === 'geodata' && jobActive(query.data.job))
   return (
-    <section className="col-span-full rounded-xl border bg-card p-5" aria-label="GeoIP 和 GeoSite 规则库">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold">GeoIP / GeoSite 规则库</h3>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            使用 NaiLink 独立目录，不修改其他插件的规则库。两份文件一起校验更新；代理运行时重新加载，失败恢复旧版。
-          </p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            来源：Loyalsoldier/v2ray-rules-dat · {data ? `当前批次 ${data.version}` : '当前使用系统规则库或自定义文件'}
-          </p>
+    <section
+      className="col-span-full min-w-0 rounded-2xl border bg-card px-4 py-3 shadow-sm"
+      aria-label="GeoIP 和 GeoSite 规则库"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <Database className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">GeoIP / GeoSite 规则库</h2>
+            <p className="mt-0.5 break-words text-xs tabular-nums text-muted-foreground">
+              {query.isPending
+                ? '正在读取批次…'
+                : query.isError
+                  ? '暂时无法读取状态'
+                  : data
+                    ? `当前批次 ${data.version}`
+                    : '系统规则库或自定义文件'}
+            </p>
+          </div>
         </div>
-        <Button className="min-h-11" disabled={busy || query.isError} onClick={() => mutation.mutate('geodata')}>
-          <RefreshCw className={busy ? 'animate-spin' : ''} aria-hidden="true" />
-          一键更新规则库
-        </Button>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-11 px-2"
+            aria-label="用途与详情"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <span className="hidden sm:inline">用途与详情</span>
+            <span className="sm:hidden">用途</span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11 px-2"
+            disabled={busy || query.isPending || query.isError}
+            onClick={() => mutation.mutate('geodata')}
+          >
+            <RefreshCw className={updating ? 'motion-safe:animate-spin' : ''} aria-hidden="true" />
+            {updating ? '更新中…' : '更新规则库'}
+          </Button>
+        </div>
       </div>
-      <div className="mt-3">
-        <MaintenanceProgress type="geodata" />
-        <MaintenanceConnection />
+      <div
+        id={detailsId}
+        hidden={!expanded}
+        className="mt-3 space-y-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground"
+      >
+        <dl className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <dt className="font-medium text-foreground">GeoIP · 按 IP 判断地区</dt>
+            <dd className="mt-1">例如识别中国大陆 IP 和局域网地址，供路由决定是否直连。</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-foreground">GeoSite · 按域名分类</dt>
+            <dd className="mt-1">例如识别国内网站，供路由和 DNS 决定访问出口及解析上游。</dd>
+          </div>
+        </dl>
+        <p>
+          只有路由或 DNS 引用的分类才会生效。更新规则库不改变现有分流策略；AI 等网站走哪个群组，仍由你的路由设置决定。
+        </p>
+        <p>三个内核使用同一份规则来源：dae 直接加载，sing-box、mihomo 转换为各自的规则后加载。</p>
+        <p>
+          来源：Loyalsoldier/v2ray-rules-dat。使用 NaiLink
+          独立目录，两份文件一起校验更新；运行时重新加载已应用配置，失败恢复旧版，保留未应用的修改。
+        </p>
       </div>
+      {query.data?.job?.action === 'geodata' && (
+        <div className="mt-3">
+          <MaintenanceProgress type="geodata" />
+        </div>
+      )}
+      <MaintenanceConnection />
       {mutation.isError && (
         <p role="alert" className="mt-3 text-sm text-destructive">
           {mutation.error.message}

@@ -50,6 +50,7 @@ export function Config() {
               <Button
                 variant="ghost"
                 size="xs"
+                aria-label={t('actions.settings')}
                 onClick={() => {
                   updateConfigFormModalRef.current?.setEditingID(config.id)
 

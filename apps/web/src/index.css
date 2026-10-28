@@ -829,6 +829,20 @@ form {
 .panel-workspace[data-workspace='advanced'] .panel-advanced-grid {
   padding: 0;
 }
+.advanced-profile-actions button {
+  min-height: 36px;
+  min-width: 36px;
+  padding-inline: 8px;
+}
+.advanced-profile > div > button {
+  min-height: 52px;
+}
+@media (pointer: coarse) {
+  .advanced-profile-actions button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
 @media (max-width: 899px) {
   .panel-workspace[data-workspace='dashboard'] {
     grid-template-columns: minmax(0, 1fr);

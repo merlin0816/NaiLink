@@ -65,6 +65,7 @@ export function Routing() {
               <Button
                 variant="ghost"
                 size="xs"
+                aria-label={t('actions.settings')}
                 onClick={() => {
                   updateRoutingFormModalRef.current?.setEditingID(routing.id)
 

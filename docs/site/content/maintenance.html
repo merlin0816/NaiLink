@@ -88,6 +88,30 @@
     >下载失败</a
   >。
 </p>
+<h2 id="geodata">GeoIP / GeoSite 规则库有什么用</h2>
+<p>它们是分流用的“分类字典”，配合高级设置中的路由和 DNS 使用。</p>
+<ul>
+  <li>
+    <strong>GeoIP</strong>：判断 IP 属于哪个地区，或是否为局域网地址。例如 <code>geoip:cn</code> 可用于国内 IP 直连。
+  </li>
+  <li>
+    <strong>GeoSite</strong>：判断域名属于哪类网站。例如 <code>geosite:cn</code> 可用于国内网站直连，或选择国内 DNS
+    解析。
+  </li>
+</ul>
+<p>
+  默认方案已引用这两类数据。只有路由或 DNS 引用的分类才会生效；更新规则库不会替你改分流策略，AI
+  网站走哪个群组仍由路由设置决定。
+</p>
+<p>
+  打开<strong>高级设置 → GeoIP / GeoSite 规则库</strong
+  >，点击<strong>更新规则库</strong>。用途与来源可按需展开；更新进度和错误提示无需展开即可看到。
+</p>
+<p>
+  dae 直接读取规则文件；sing-box、mihomo
+  使用同一份数据转换后的规则。两份文件先下载、校验，再一起加载；失败恢复旧版，保留节点、配置和未应用的编辑。数据保存在
+  NaiLink 独立目录，不覆盖其他插件或用户自定义规则文件。
+</p>
 <h2 id="restart-recovery">更新后如何判断代理已恢复</h2>
 <p>
   0.6.30 起，更新脚本分别检查管理页面、代理监听、DNS
