@@ -41,12 +41,23 @@ async function checkHorizontalChoices(dialog, selected) {
   assert.ok(Math.max(...boxes.map((b) => b.y)) - Math.min(...boxes.map((b) => b.y)) < 1, JSON.stringify(boxes))
   assert.ok(boxes[0].x < boxes[1].x && boxes[1].x < boxes[2].x)
   assert.ok(
-    boxes.every((b) => b.height <= 116 && b.width >= 58),
+    boxes.every((b) => b.height === 44 && b.width >= 58),
     JSON.stringify(boxes),
   )
   const option = dialog.getByRole('button', { name: selected, exact: true })
   assert.equal(await option.getAttribute('aria-pressed'), 'true')
   assert.equal(await option.locator('svg').count(), 1)
+  assert.ok(await option.evaluate((node) => node.scrollWidth <= node.clientWidth), 'Option label overflow')
+  assert.ok(
+    await option
+      .locator('span')
+      .first()
+      .evaluate(
+        (node) => node.getBoundingClientRect().height <= Number.parseFloat(getComputedStyle(node).lineHeight) + 1,
+      ),
+    'Option label wrapped',
+  )
+  assert.ok((await dialog.locator('[data-core-selection]').textContent()).startsWith(`${selected} ·`))
   await new Promise((resolve) => setTimeout(resolve, 220))
   const backgrounds = await choices.evaluateAll((nodes) =>
     nodes.map((node) => ({

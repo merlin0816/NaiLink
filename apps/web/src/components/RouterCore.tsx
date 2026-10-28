@@ -184,7 +184,11 @@ export function RouterCore() {
                 <span>选择内核</span>
                 <span>每次仅运行一个代理内核</span>
               </div>
-              <div className="grid grid-cols-3 gap-2 sm:gap-3" role="group" aria-label="目标内核">
+              <div
+                className="grid grid-cols-3 gap-1 rounded-xl border bg-muted/40 p-1"
+                role="group"
+                aria-label="目标内核"
+              >
                 {cores.map((name) => {
                   const optional =
                     name === 'dae'
@@ -201,54 +205,40 @@ export function RouterCore() {
                       type="button"
                       aria-label={name}
                       aria-pressed={selected}
+                      aria-describedby={selected ? 'core-selection-detail' : undefined}
+                      title={unsupported ? `${name}：当前架构不支持` : undefined}
                       disabled={busy || unsupported}
                       className={cn(
-                        'relative flex min-h-28 min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-center transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none',
+                        'flex h-11 min-w-0 items-center justify-center gap-0.5 rounded-lg px-0.5 text-[11px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none sm:gap-1.5 sm:px-1 sm:text-sm',
                         selected
-                          ? 'border-primary bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/20 hover:bg-primary/95'
-                          : 'border-border bg-background hover:border-primary/50 hover:bg-primary/5',
+                          ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/95'
+                          : 'text-muted-foreground hover:bg-background hover:text-foreground',
                       )}
                       onClick={() => setTarget(name)}
                       data-core-option={name}
                     >
-                      {selected && (
-                        <Check className="absolute right-1.5 top-1.5 size-3.5 sm:right-2 sm:top-2" aria-hidden="true" />
-                      )}
-                      <span className="block text-[13px] font-semibold sm:text-sm">{name}</span>
-                      <span
-                        className={cn(
-                          'block whitespace-nowrap text-[10px] sm:text-xs',
-                          selected ? 'text-primary-foreground/85' : 'text-muted-foreground',
-                        )}
-                      >
-                        {descriptions[name]}
-                      </span>
-                      <span
-                        className={cn(
-                          'whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium sm:px-2 sm:text-[11px]',
-                          selected
-                            ? 'bg-primary-foreground/15 text-primary-foreground'
-                            : current === name
-                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                              : 'bg-muted text-muted-foreground',
-                        )}
-                      >
-                        {current === name
-                          ? '正在使用'
-                          : selected
-                            ? '已选择'
-                            : unsupported
-                              ? '架构不支持'
-                              : name === 'dae'
-                                ? '内置'
-                                : optional?.installed
-                                  ? '已安装'
-                                  : '需下载'}
-                      </span>
+                      {selected && <Check className="size-2.5 shrink-0 sm:size-3.5" aria-hidden="true" />}
+                      <span className="whitespace-nowrap">{name}</span>
+                      {unsupported && <span className="sr-only">，当前架构不支持</span>}
                     </button>
                   )
                 })}
               </div>
+              <p
+                id="core-selection-detail"
+                className="mt-2 text-xs leading-relaxed text-muted-foreground"
+                aria-live="polite"
+                data-core-selection
+              >
+                {target} · {descriptions[target]} ·{' '}
+                {current === target
+                  ? '正在使用'
+                  : target !== 'dae' && selectedCore?.supported === false
+                    ? '当前架构不支持'
+                    : installed
+                      ? '已选择，待检查'
+                      : '需先下载安装'}
+              </p>
             </section>
             {target !== 'dae' && (!installed || repairCore) && (
               <section className="space-y-2 text-sm" aria-label="安装可选内核">
@@ -370,14 +360,17 @@ export function RouterCore() {
             )}
           </div>
           <div className="shrink-0 space-y-3 border-t bg-background px-5 py-4 sm:px-6">
-            <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-label="切换步骤">
+            <p
+              className="flex items-center justify-between gap-1 text-[11px] text-muted-foreground sm:justify-start sm:gap-2 sm:text-xs"
+              aria-label="切换步骤"
+            >
               <span>选择内核</span>
               <ArrowRight className="size-3" aria-hidden="true" />
               <span className={ready ? 'text-foreground' : undefined}>检查兼容性</span>
               <ArrowRight className="size-3" aria-hidden="true" />
               <span>确认切换</span>
             </p>
-            <div className="grid grid-cols-[44px_1fr_1fr] gap-2">
+            <div className="grid grid-cols-[44px_minmax(0,1fr)_minmax(0,1fr)] gap-2">
               <Button
                 variant="outline"
                 className="min-h-11 px-0"
@@ -396,14 +389,14 @@ export function RouterCore() {
               </Button>
               <Button
                 variant="outline"
-                className="min-h-11 px-2 text-xs sm:text-sm"
+                className="h-auto min-h-11 min-w-0 whitespace-normal px-2 py-2 text-xs sm:text-sm"
                 disabled={blocked || !installed}
                 onClick={() => mutation.mutate(`core_check_${suffix}`)}
               >
                 检查兼容性
               </Button>
               <Button
-                className="min-h-11 px-2 text-xs sm:text-sm"
+                className="h-auto min-h-11 min-w-0 whitespace-normal px-2 py-2 text-xs sm:text-sm"
                 disabled={blocked || !ready || target === current}
                 onClick={() => mutation.mutate(`core_switch_${suffix}`)}
               >
