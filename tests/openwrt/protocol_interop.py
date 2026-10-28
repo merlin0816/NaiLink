@@ -312,7 +312,7 @@ def run_fixture(args, http_port, udp_port):
                 'congestion_control': 'cubic', 'log_level': 'error'}), encoding='utf-8')
             cases.append({'Name': 'juicity', 'Link': f'juicity://{uuid}:fixture%40pass%3A2026@127.0.0.1:{number}?sni=vless.fixture.test&congestion_control=cubic'})
         config = work / "config.json"
-        config.write_text(json.dumps({"log": {"level": "error"}, "inbounds": inbounds, "endpoints": endpoints, "outbounds": [{"type": "direct", "tag": "direct"}]}), encoding="utf-8")
+        config.write_text(json.dumps({"log": {"level": "debug"}, "inbounds": inbounds, "endpoints": endpoints, "outbounds": [{"type": "direct", "tag": "direct"}]}), encoding="utf-8")
         casefile = work / "cases.json"
         casefile.write_text(json.dumps({"Target": f"http://{args.fixture_address}:{http_port}", "UDP": f"{args.fixture_address}:{udp_port}", "Cases": cases, "NativeCases":native_cases}), encoding="utf-8")
         subprocess.run([str(args.sing_box), "check", "-c", str(config)], check=True)
@@ -338,6 +338,12 @@ def run_fixture(args, http_port, udp_port):
                 if result == 0 and args.client_mihomo:
                     env['DAED_TEST_MIHOMO'] = str(args.client_mihomo.resolve(strict=True))
                     result = subprocess.run(['go', 'test', '-count=1', '-timeout=240s', '-v', './dae', '-run', '^TestRouterMihomoProtocolInteroperability$'], cwd=args.wing, env=env).returncode
+                if result:
+                    # These are generated local test identities, never provider
+                    # configuration. Bound the failure trace and retain the gate.
+                    lines=(work / "server.log").read_text(errors="replace").splitlines()
+                    relevant=[line[:300] for line in lines if 'wireguard' in line.lower() or '10.66.66.' in line]
+                    print("Independent WireGuard fixture trace:\n"+'\n'.join(relevant[-48:]),flush=True)
                 return result
             finally:
                 process.terminate()

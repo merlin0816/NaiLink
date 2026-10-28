@@ -13,7 +13,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -218,6 +220,54 @@ func TestRouterMihomoCanonicalRulesAndNativeCheck(t *testing.T) {
 	}
 }
 
+// Only used with generated, credential-free loopback fixtures. Retain bounded
+// child logs on failure so a dropped datagram is not mistaken for a bad mapping.
+type routerInteropDiagnosticLog struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *routerInteropDiagnosticLog) Levels() []logrus.Level { return logrus.AllLevels }
+func (l *routerInteropDiagnosticLog) Fire(entry *logrus.Entry) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	line := entry.Message
+	if len(line) > 240 {
+		line = line[:240]
+	}
+	l.lines = append(l.lines, line)
+	if len(l.lines) > 32 {
+		l.lines = l.lines[len(l.lines)-32:]
+	}
+	return nil
+}
+func routerInteropUDPDiagnostic(t *testing.T, ctx context.Context, link string, global daeConfig.Global) {
+	t.Helper()
+	conf, _, _, err := routerProbeConfiguration([]string{link}, global)
+	if err != nil {
+		t.Log("diagnostic configuration", err)
+		return
+	}
+	conf.Global.LogLevel = "debug"
+	conf.Routing.Fallback = "probe-0"
+	trace := new(routerInteropDiagnosticLog)
+	session, err := routerStartProbe(ctx, conf, trace)
+	if err != nil {
+		t.Log("diagnostic startup", err)
+		return
+	}
+	defer routerStopProbe(session)
+	host, port, _ := net.SplitHostPort(global.UdpCheckDns[0])
+	number, _ := strconv.Atoi(port)
+	err = routerSOCKSUDPQuery(ctx, session, net.ParseIP(host), number)
+	t.Logf("independent UDP diagnostic: %v", err)
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	for _, line := range trace.lines {
+		t.Log(line)
+	}
+}
+
 func TestRouterMihomoProtocolInteroperability(t *testing.T) {
 	path, binary := os.Getenv("DAED_PROTOCOL_CASES"), os.Getenv("DAED_TEST_MIHOMO")
 	if path == "" || binary == "" {
@@ -380,6 +430,7 @@ func TestRouterMihomoProtocolInteroperability(t *testing.T) {
 			}
 			r, e := ProbeRouterCoreUDP(ctx, c.Link, g)
 			if e != nil || !r.Alive {
+				routerInteropUDPDiagnostic(t, ctx, c.Link, g)
 				t.Fatal("real UDP query failed", r, e)
 			}
 		})
