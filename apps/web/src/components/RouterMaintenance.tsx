@@ -1,4 +1,4 @@
-import { Database, Download, LoaderCircle, RefreshCw, X } from 'lucide-react'
+import { ChevronDown, Database, Download, Globe2, LoaderCircle, MapPin, RefreshCw, ShieldCheck, X } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { Button } from '~/components/ui/button'
 import {
@@ -203,29 +203,33 @@ export function RouterGeodata() {
       </DialogTrigger>
       <ScrollableDialogContent
         size="lg"
-        className="sm:max-w-[42rem]"
+        className="rounded-2xl sm:max-w-[35rem]"
         showCloseButton={false}
         aria-describedby={descriptionId}
       >
-        <ScrollableDialogHeader className="pr-16 text-left">
-          <DialogTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-            GeoIP / GeoSite 规则库
-          </DialogTitle>
-          <DialogDescription id={descriptionId}>更新分流数据，保留现有节点、配置和分流策略。</DialogDescription>
-        </ScrollableDialogHeader>
-        <ScrollableDialogBody className="space-y-4 overscroll-contain text-sm leading-relaxed">
-          <dl className="rounded-xl bg-muted/40 p-3">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <dt className="text-muted-foreground">当前批次</dt>
-              <dd className="break-words font-medium tabular-nums">
-                {query.isPending
-                  ? '正在读取…'
-                  : query.isError
-                    ? '暂时无法读取状态'
-                    : data?.version || '系统规则库或自定义文件'}
-              </dd>
+        <ScrollableDialogHeader className="gap-3 p-5 pr-14 text-left">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Database className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 space-y-0.5">
+              <DialogTitle className="text-lg font-semibold">规则库更新</DialogTitle>
+              <DialogDescription id={descriptionId} className="text-xs">
+                GeoIP / GeoSite 分流数据
+              </DialogDescription>
             </div>
+          </div>
+        </ScrollableDialogHeader>
+        <ScrollableDialogBody className="space-y-4 overscroll-contain p-5 text-sm leading-relaxed">
+          <dl className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <dt className="text-xs text-muted-foreground">当前批次</dt>
+            <dd className="min-w-0 break-all rounded-md bg-muted/50 px-2.5 py-1 font-mono text-xs font-medium tabular-nums">
+              {query.isPending
+                ? '正在读取…'
+                : query.isError
+                  ? '暂时无法读取状态'
+                  : data?.version || '系统规则库或自定义文件'}
+            </dd>
           </dl>
           {(job || updating || busy || query.isError || mutation.isError) && (
             <div className="sticky top-0 z-10 space-y-2 bg-background">
@@ -249,35 +253,58 @@ export function RouterGeodata() {
               )}
             </div>
           )}
-          <dl className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <dt className="font-semibold">GeoIP · 按 IP 判断地区</dt>
-              <dd className="mt-1 text-muted-foreground">例如识别中国大陆 IP 和局域网地址，供路由决定是否直连。</dd>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border bg-muted/15 p-4">
+              <dt className="flex items-center gap-2 font-semibold">
+                <MapPin className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                GeoIP
+                <span className="ml-auto text-xs font-normal text-muted-foreground">IP 地区</span>
+              </dt>
+              <dd className="mt-2 text-[13px] text-muted-foreground">识别国家、地区与局域网 IP。</dd>
             </div>
-            <div>
-              <dt className="font-semibold">GeoSite · 按域名分类</dt>
-              <dd className="mt-1 text-muted-foreground">例如识别国内网站，供路由和 DNS 决定访问出口及解析上游。</dd>
+            <div className="rounded-xl border bg-muted/15 p-4">
+              <dt className="flex items-center gap-2 font-semibold">
+                <Globe2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                GeoSite
+                <span className="ml-auto text-xs font-normal text-muted-foreground">域名分类</span>
+              </dt>
+              <dd className="mt-2 text-[13px] text-muted-foreground">识别网站分类，供路由和 DNS 使用。</dd>
             </div>
           </dl>
-          <p className="text-muted-foreground">
-            只有路由或 DNS 引用的分类才会生效。更新规则库不改变现有分流策略；AI 等网站走哪个群组，仍由你的路由设置决定。
+          <p className="flex items-start gap-2 text-xs text-muted-foreground">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            保留节点与分流策略。
           </p>
-          <p className="text-muted-foreground">
-            三个内核使用同一份规则来源：dae 直接加载，sing-box、mihomo 转换为各自的规则后加载。
-          </p>
-          <p className="text-xs text-muted-foreground">
-            来源：Loyalsoldier/v2ray-rules-dat。使用 NaiLink
-            独立目录，两份文件一起校验更新；运行时重新加载已应用配置，失败恢复旧版，保留未应用的修改。
-          </p>
+          <details className="group border-t pt-1">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+              详细说明
+              <ChevronDown
+                className="h-4 w-4 shrink-0 motion-safe:transition-transform group-open:rotate-180"
+                aria-hidden="true"
+              />
+            </summary>
+            <div className="space-y-3 pb-1 pt-1 text-xs text-muted-foreground">
+              <p>只有路由或 DNS 引用的分类才会生效。AI 等网站走哪个群组，仍由你的路由设置决定。</p>
+              <p>三个内核共用同一来源：dae 直接加载，sing-box、mihomo 转换后加载。</p>
+              <p className="break-words">
+                来源：Loyalsoldier/v2ray-rules-dat。使用 NaiLink
+                独立目录，两份文件一起校验；加载失败恢复旧版，保留未应用的修改。
+              </p>
+            </div>
+          </details>
         </ScrollableDialogBody>
-        <ScrollableDialogFooter className="flex-row items-center">
+        <ScrollableDialogFooter className="flex-row items-center p-4 sm:px-5">
+          <span className="mr-auto hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+            校验后生效
+          </span>
           <DialogClose asChild>
-            <Button variant="outline" className="min-h-11">
+            <Button variant="outline" className="min-h-11 flex-1 px-5 sm:flex-none">
               关闭
             </Button>
           </DialogClose>
           <Button
-            className="min-h-11 flex-1 sm:flex-none"
+            className="min-h-11 flex-1 px-5 sm:flex-none"
             disabled={busy || query.isPending || query.isError}
             onClick={() => mutation.mutate('geodata')}
           >
