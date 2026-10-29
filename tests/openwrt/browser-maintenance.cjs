@@ -107,7 +107,11 @@ async function waitText(locator, pattern) {
     // section has an accessible name, so it is a region in the browser tree.
     const details = card.getByRole('button', { name: '用途与详情' })
     assert.equal(await details.getAttribute('aria-expanded'), 'false')
-    assert.ok((await card.boundingBox()).height < 120, 'collapsed rules toolbar is too tall')
+    const collapsedHeight = (await card.boundingBox()).height
+    const advancedCards = await frame.locator('.panel-advanced-grid > *').all()
+    assert.equal(advancedCards.length, 4)
+    const rowTops = await Promise.all(advancedCards.map(async (item) => Math.round((await item.boundingBox()).y)))
+    assert.equal(new Set(rowTops).size, 1, 'all four advanced cards must share the desktop row')
     await details.focus()
     await page.keyboard.press('Enter')
     await card.getByText(/只有路由或 DNS 引用的分类才会生效/).waitFor()
@@ -116,7 +120,10 @@ async function waitText(locator, pattern) {
     assert.equal(await details.getAttribute('aria-expanded'), 'false')
     await card.getByRole('button', { name: '更新规则库' }).click()
     await card.getByRole('status', { name: '规则库已更新', exact: true }).waitFor()
-    assert.ok((await card.boundingBox()).height < 100, 'finished update must return to compact layout')
+    assert.ok(
+      (await card.boundingBox()).height <= collapsedHeight + 20,
+      'finished update must return to compact layout',
+    )
     const first = await control('maintenance')
     assert.match(first.current, /^data-/)
     assert.deepEqual(await gql(resources), before)

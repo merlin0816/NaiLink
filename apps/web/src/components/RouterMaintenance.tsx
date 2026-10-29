@@ -177,14 +177,14 @@ export function RouterGeodata() {
   const updating = mutation.isPending || jobActive(job)
   return (
     <section
-      className="col-span-full min-w-0 rounded-2xl border bg-card px-4 py-3 shadow-sm"
+      className="@container min-w-0 rounded-2xl border bg-card p-4 shadow-sm"
       aria-label="GeoIP 和 GeoSite 规则库"
     >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <Database className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <Database className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold">GeoIP / GeoSite 规则库</h2>
+            <h2 className="text-base font-semibold">GeoIP / GeoSite 规则库</h2>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-muted-foreground">
               <p className="break-words">
                 {query.isPending
@@ -213,8 +213,8 @@ export function RouterGeodata() {
             aria-controls={detailsId}
             onClick={() => setExpanded((value) => !value)}
           >
-            <span className="hidden sm:inline">用途与详情</span>
-            <span className="sm:hidden">用途</span>
+            <span className="hidden @xs:inline">用途与详情</span>
+            <span className="@xs:hidden">用途</span>
             <ChevronDown
               className={`h-4 w-4 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
               aria-hidden="true"
@@ -237,7 +237,7 @@ export function RouterGeodata() {
         hidden={!expanded}
         className="mt-3 space-y-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground"
       >
-        <dl className="grid gap-3 sm:grid-cols-2">
+        <dl className="grid gap-3 @sm:grid-cols-2">
           <div>
             <dt className="font-medium text-foreground">GeoIP · 按 IP 判断地区</dt>
             <dd className="mt-1">例如识别中国大陆 IP 和局域网地址，供路由决定是否直连。</dd>
