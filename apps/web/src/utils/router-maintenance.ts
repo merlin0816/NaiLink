@@ -49,6 +49,8 @@ export interface MaintenanceStatus {
   current: string
   latest?: { version: string; tag: string; checked: number }
   geodata?: { version: string; tag: string; checked: number }
+  geodata_check?: { version?: string; tag?: string; checked: number; code?: string }
+  geodata_custom?: boolean
   job?: MaintenanceJob
   cores?: CoreStatus
 }
@@ -58,6 +60,29 @@ export function coreTransitionActive(status?: MaintenanceStatus) {
     status?.cores?.phase === 'switching' ||
     (!!status?.job && jobActive(status.job) && status.job.action.startsWith('core_switch_'))
   )
+}
+
+export function geodataCheckExpired(check?: MaintenanceStatus['geodata_check'], now = Date.now()) {
+  const age = now / 1000 - (check?.checked || 0)
+  return !check || !Number.isFinite(check.checked) || check.checked <= 0 || age < -60 || age >= 300
+}
+
+export function geodataVersionState(
+  status?: MaintenanceStatus,
+  checking = false,
+  requestFailed = false,
+  now = Date.now(),
+) {
+  if (status?.geodata_custom) return 'custom'
+  if (checking) return 'checking'
+  if (requestFailed || status?.geodata_check?.code) return 'error'
+  const check = status?.geodata_check
+  if (geodataCheckExpired(check, now) || !check?.tag || check.version !== check.tag) return 'unknown'
+  const current = status?.geodata?.tag
+  if (!current) return 'unmanaged'
+  if (current === check.tag) return 'latest'
+  if (/^\d{12}$/.test(current) && /^\d{12}$/.test(check.tag) && current > check.tag) return 'ahead'
+  return 'available'
 }
 
 export const maintenanceMessages: Record<string, string> = {
@@ -204,7 +229,7 @@ async function maintenanceRPC(method: 'maintenance' | 'maintain', action?: strin
     result = await rpc.declare({
       object: 'daed-router',
       method,
-      params: method === 'maintain' ? ['action'] : [],
+      params: method === 'maintain' ? ['action'] : action ? ['check_geodata'] : [],
       expect: {},
       raise: true,
       reject: true,
@@ -225,4 +250,9 @@ async function maintenanceRPC(method: 'maintenance' | 'maintain', action?: strin
   return result
 }
 export const readMaintenance = () => maintenanceRPC('maintenance')
+export const checkGeodataVersion = async () => {
+  const result = await maintenanceRPC('maintenance', '1')
+  if (!result.geodata_check) throw new Error('规则版本检查接口尚未就绪，请刷新后台后重试。')
+  return result
+}
 export const startMaintenance = (action: MaintenanceAction) => maintenanceRPC('maintain', action)

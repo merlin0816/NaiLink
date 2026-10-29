@@ -300,6 +300,122 @@ func geodataFixture(t *testing.T, m *maintenanceManager) map[string][]byte {
 	return files
 }
 
+func TestGeodataMetadataCheckIsBoundedCachedAndDoesNotUpdateRules(t *testing.T) {
+	m := maintenanceFixture(t)
+	files := geodataFixture(t, m)
+	now := m.now()
+	m.now = func() time.Time { return now }
+	requests := 0
+	m.fetch = func(ctx context.Context, address, dest string, limit int64) error {
+		requests++
+		if address != "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest" {
+			t.Fatalf("unexpected data download: %s", address)
+		}
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 13*time.Second {
+			t.Fatal("metadata request is not bounded")
+		}
+		return fixtureFetch(files)(ctx, address, dest, limit)
+	}
+	m.graph = func(context.Context, string, any) error { t.Fatal("metadata check called proxy API"); return nil }
+	m.run = func(context.Context, ...string) ([]byte, error) {
+		t.Fatal("metadata check started a service/command")
+		return nil, nil
+	}
+	for _, name := range []string{"wing.db", "config.dae"} {
+		os.WriteFile(filepath.Join(m.configDir, name), []byte("preserve-"+name), 0600)
+	}
+	global, err := maintenanceLock(m.lockFile, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer global.Close()
+	install, err := maintenanceLock(m.installLock, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer install.Close()
+	first := m.checkGeodataLatest(context.Background())
+	if !first.Success || first.GeodataCheck == nil || first.GeodataCheck.Tag != "20261025" || first.GeodataCheck.Code != "" {
+		t.Fatalf("unexpected metadata: %+v", first)
+	}
+	second := m.checkGeodataLatest(context.Background())
+	if requests != 1 || second.GeodataCheck.Checked != first.GeodataCheck.Checked {
+		t.Fatalf("duplicate fetch: %d", requests)
+	}
+	for _, name := range []string{"wing.db", "config.dae"} {
+		body, _ := os.ReadFile(filepath.Join(m.configDir, name))
+		if string(body) != "preserve-"+name {
+			t.Fatal("user data changed")
+		}
+	}
+	for _, name := range []string{filepath.Join(m.configDir, "geodata"), filepath.Join(m.stateDir, "job.json"), filepath.Join(m.stateDir, "latest.json")} {
+		if _, err := os.Lstat(name); !os.IsNotExist(err) {
+			t.Fatalf("unexpected maintenance output: %s", name)
+		}
+	}
+	now = now.Add(31 * time.Second)
+	m.fetch = func(context.Context, string, string, int64) error { return errors.New("download_tls") }
+	failed := m.checkGeodataLatest(context.Background())
+	if failed.GeodataCheck.Code != "download_tls" || failed.GeodataCheck.Tag != "" || m.status().GeodataCheck.Code != "download_tls" {
+		t.Fatal("failed check retained an old success")
+	}
+	now = now.Add(4 * time.Second)
+	m.fetch = fixtureFetch(files)
+	if recovered := m.checkGeodataLatest(context.Background()); recovered.GeodataCheck.Code != "" || recovered.GeodataCheck.Tag != "20261025" {
+		t.Fatal("metadata retry did not recover")
+	}
+	// Clock corrections invalidate cache instead of suppressing checks indefinitely.
+	now = now.Add(-time.Hour)
+	files["https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"] = []byte(`{"tag_name":"20261026","assets":[]}`)
+	if invalid := m.checkGeodataLatest(context.Background()); invalid.GeodataCheck.Code != "invalid_release" || invalid.GeodataCheck.Tag != "" {
+		t.Fatal("invalid metadata accepted")
+	}
+	os.WriteFile(filepath.Join(m.configDir, "geoip.dat"), []byte("custom"), 0600)
+	if !m.status().GeodataCustom {
+		t.Fatal("custom data source not detected")
+	}
+}
+
+func TestGeodataMetadataLockCancellation(t *testing.T) {
+	m := maintenanceFixture(t)
+	lock, err := maintenanceLock(m.lockFile+".geodata-check", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	m.fetch = func(context.Context, string, string, int64) error { t.Fatal("fetch must not bypass lock"); return nil }
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	result := m.checkGeodataLatest(ctx)
+	if result.GeodataCheck.Code != "download_timeout" || time.Since(start) > time.Second {
+		t.Fatal("metadata check did not cancel promptly")
+	}
+}
+
+func TestGeodataMetadataRejectsEveryMissingRequiredAsset(t *testing.T) {
+	for _, missing := range []string{"geoip.dat", "geosite.dat", "geoip.dat.sha256sum", "geosite.dat.sha256sum"} {
+		t.Run(missing, func(t *testing.T) {
+			m := maintenanceFixture(t)
+			files := geodataFixture(t, m)
+			address := "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
+			var release githubRelease
+			json.Unmarshal(files[address], &release)
+			kept := release.Assets[:0]
+			for _, asset := range release.Assets {
+				if asset.Name != missing {
+					kept = append(kept, asset)
+				}
+			}
+			release.Assets = kept
+			files[address], _ = json.Marshal(release)
+			if s := m.checkGeodataLatest(context.Background()); s.GeodataCheck.Code != "invalid_release" {
+				t.Fatalf("accepted missing asset: %s", missing)
+			}
+		})
+	}
+}
+
 func TestMaintenanceGeodataAtomicActivationAndFailurePaths(t *testing.T) {
 	for _, mode := range []string{"success", "download_failed", "invalid_geodata", "custom_geodata", "apply_failed", "apply_unconfirmed", "pending_configuration"} {
 		t.Run(mode, func(t *testing.T) {

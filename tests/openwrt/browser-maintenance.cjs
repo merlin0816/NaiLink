@@ -159,6 +159,26 @@ async function waitText(locator, pattern) {
       generalBefore,
       'rules update applied pending config or enabled the proxy',
     )
+    await card.getByText('批次已是最新', { exact: true }).waitFor()
+    const metadataBefore = await control('maintenance', { fail: 'metadata', bump: true, clear_geodata_check: true })
+    const metadataActions = rulesActions
+    await card.getByRole('button', { name: '重新检查规则版本', exact: true }).click()
+    await card.getByText('暂时无法确认', { exact: true }).waitFor({ timeout: 20000 })
+    assert.equal(await card.getByText('批次已是最新', { exact: true }).count(), 0)
+    assert.equal((await control('maintenance')).current, first.current)
+    await control('maintenance', { fail: '', clear_geodata_check: true })
+    await card.getByRole('button', { name: '重新检查规则版本', exact: true }).click()
+    await card.getByText('有可用更新', { exact: true }).waitFor()
+    const metadataAfter = await control('maintenance')
+    assert.ok(
+      metadataAfter.requests
+        .slice(metadataBefore.requests.length)
+        .every((p) => p === '/repos/Loyalsoldier/v2ray-rules-dat/releases/latest'),
+      'metadata checks must not download rule data',
+    )
+    assert.equal(rulesActions, metadataActions, 'metadata checks must not create maintenance jobs')
+    assert.equal(metadataAfter.current, first.current)
+    assert.deepEqual(await gql(resources), before)
     await control('maintenance', { fail: 'checksum', bump: true })
     await card.getByRole('button', { name: '更新', exact: true }).click()
     await waitText(card, /文件校验失败/)
@@ -281,6 +301,7 @@ async function waitText(locator, pattern) {
       refreshRecovery: true,
       userDataPreserved: true,
       geodataPairActivation: true,
+      ruleMetadataOnlyCheckAndFailureRetry: true,
       checksumAndFormatFailurePreservedOldData: true,
       customDataPreserved: true,
       pendingConfigurationPreserved: true,

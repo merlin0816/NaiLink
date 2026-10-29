@@ -275,8 +275,10 @@ def main():
                         if not re.fullmatch(r"0\.6\.(99|100|101)",request['next']): raise ValueError('Invalid future fixture version')
                         maintenance.state['next'] = request['next']
                     if "fail" in request:
-                        if request["fail"] not in ("", "download", "checksum", "invalid_geodata", "install", "core_checksum"): raise ValueError("Invalid fixture failure mode")
+                        if request["fail"] not in ("", "download", "checksum", "invalid_geodata", "install", "core_checksum", "metadata"): raise ValueError("Invalid fixture failure mode")
                         maintenance.state["fail"] = request["fail"]
+                    if request.get("clear_geodata_check"):
+                        (root / "var/run/daed-maintenance/geodata-latest.json").unlink(missing_ok=True)
                     if request.get("bump"):
                         maintenance.state["geo"] = str(int(maintenance.state["geo"]) + 1)
                     if "hold" in request:

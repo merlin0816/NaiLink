@@ -16,8 +16,10 @@ import {
   ScrollableDialogFooter,
   ScrollableDialogHeader,
 } from '~/components/ui/scrollable-dialog'
-import { useRouterMaintenance } from '~/hooks/useRouterMaintenance'
+import { useGeodataVersionCheck, useRouterMaintenance } from '~/hooks/useRouterMaintenance'
 import {
+  geodataCheckExpired,
+  geodataVersionState,
   jobActive,
   maintenanceMessages,
   newerVersion,
@@ -56,7 +58,9 @@ function MaintenanceProgress({ type }: { type: 'update' | 'geodata' }) {
                 ? '版本检查完成'
                 : type === 'geodata'
                   ? job.code === 'already_latest'
-                    ? '规则库已是最新，无需重新加载'
+                    ? geodataVersionState(query.data) === 'latest'
+                      ? '规则库已是最新，无需重新加载'
+                      : '上次校验通过，未重新加载规则库'
                     : '规则库已更新'
                   : '插件更新完成'
               : phases[job.phase] || '维护任务正在执行'}
@@ -184,14 +188,45 @@ export function RouterVersion() {
 
 export function RouterGeodata() {
   const { query, mutation, busy } = useRouterMaintenance()
+  const versionCheck = useGeodataVersionCheck()
   const [open, setOpen] = useState(false)
   const descriptionId = useId()
   const data = query.data?.geodata
   const job = query.data?.job?.action === 'geodata' ? query.data.job : undefined
   const updating = mutation.isPending || jobActive(job)
+  const versionStatus =
+    query.data && versionCheck.data?.geodata_check?.code
+      ? { ...query.data, geodata_check: versionCheck.data.geodata_check }
+      : query.data
+  const version = versionStatus?.geodata_check
+  const versionState = geodataVersionState(versionStatus, versionCheck.isPending, query.isError || versionCheck.isError)
+  const versionLabels = {
+    latest: '批次已是最新',
+    available: '有可用更新',
+    ahead: '本地批次较新',
+    checking: '正在检查…',
+    unknown: '尚未检查',
+    error: '暂时无法确认',
+    custom: '自定义规则',
+    unmanaged: '使用系统规则，无法比较批次',
+  }
   const changeOpen = (value: boolean) => {
     setOpen(value)
-    if (value) query.refetch()
+    if (value)
+      void query.refetch().then((result) => {
+        if (
+          !result.isError &&
+          result.data &&
+          !result.data.geodata_custom &&
+          (geodataCheckExpired(result.data.geodata_check) ||
+            !!result.data.geodata_check?.code ||
+            !!versionCheck.data?.geodata_check?.code ||
+            versionCheck.isError) &&
+          !versionCheck.isPending
+        ) {
+          versionCheck.mutate()
+        }
+      })
   }
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
@@ -231,6 +266,59 @@ export function RouterGeodata() {
                   : data?.version || '系统规则库或自定义文件'}
             </dd>
           </dl>
+          <div
+            className="flex items-start justify-between gap-3 rounded-xl bg-muted/30 px-3 py-2"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <div className="min-w-0 space-y-1 py-1">
+              <p
+                className={`flex items-center gap-1.5 text-xs font-medium ${versionState === 'latest' ? 'text-emerald-700 dark:text-emerald-400' : versionState === 'available' ? 'text-primary' : 'text-muted-foreground'}`}
+              >
+                {versionCheck.isPending && (
+                  <LoaderCircle className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />
+                )}
+                {versionLabels[versionState]}
+              </p>
+              {version?.tag && !version.code && versionState !== 'custom' && (
+                <p className="break-all text-xs text-muted-foreground">
+                  上游批次 <span className="font-mono tabular-nums">{version.tag}</span>
+                </p>
+              )}
+              {!!version?.checked && !geodataCheckExpired(version) && versionState !== 'custom' && (
+                <p className="text-[11px] text-muted-foreground">
+                  检查于{' '}
+                  {new Intl.DateTimeFormat('zh-CN', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }).format(new Date(version.checked * 1000))}
+                </p>
+              )}
+              {versionState === 'error' && (
+                <p className="text-xs text-muted-foreground">
+                  {versionCheck.error?.message ||
+                    maintenanceMessages[version?.code || ''] ||
+                    '无法获取上游版本，请稍后重试。当前规则未改动。'}
+                </p>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="min-h-11 min-w-11 shrink-0"
+              aria-label="重新检查规则版本"
+              title="重新检查规则版本"
+              disabled={versionCheck.isPending || query.isPending || query.isError || !!query.data?.geodata_custom}
+              onClick={() => versionCheck.mutate()}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${versionCheck.isPending ? 'motion-safe:animate-spin' : ''}`}
+                aria-hidden="true"
+              />
+            </Button>
+          </div>
           {(job || updating || busy || query.isError || mutation.isError) && (
             <div className="sticky top-0 z-10 space-y-2 bg-background">
               <MaintenanceProgress type="geodata" />
@@ -285,6 +373,7 @@ export function RouterGeodata() {
             </summary>
             <div className="space-y-3 pb-1 pt-1 text-xs text-muted-foreground">
               <p>只有路由或 DNS 引用的分类才会生效。AI 等网站走哪个群组，仍由你的路由设置决定。</p>
+              <p>打开窗口仅检查上游批次，五分钟内复用检查结果。批次相同仍可点击更新，重新校验本地文件。</p>
               <p>三个内核共用同一来源：dae 直接加载，sing-box、mihomo 转换后加载。</p>
               <p className="break-words">
                 来源：Loyalsoldier/v2ray-rules-dat。使用 NaiLink

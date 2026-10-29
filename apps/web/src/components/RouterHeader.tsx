@@ -26,7 +26,8 @@ export function RouterHeader() {
   const query = useGeneralQuery()
   const run = useRunMutation()
   const mutations = useIsMutating({
-    predicate: (mutation) => mutation.options.mutationKey?.[0] !== 'node-latency-test',
+    predicate: (mutation) =>
+      !['node-latency-test', 'geodata-version-check'].includes(String(mutation.options.mutationKey?.[0])),
   })
   const { busy: maintenanceBusy } = useRouterMaintenance()
   const saving = mutations > 0 || maintenanceBusy

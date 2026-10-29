@@ -55,19 +55,27 @@ type releaseInfo struct {
 	Tag     string `json:"tag"`
 	Checked int64  `json:"checked"`
 }
+type geodataReleaseCheck struct {
+	Version string `json:"version,omitempty"`
+	Tag     string `json:"tag,omitempty"`
+	Checked int64  `json:"checked"`
+	Code    string `json:"code,omitempty"`
+}
 type maintenanceGeodataReceipt struct {
 	Target   string `json:"target"`
 	Previous string `json:"previous"`
 	State    string `json:"state"`
 }
 type maintenanceStatus struct {
-	Success bool                   `json:"success"`
-	Code    string                 `json:"code,omitempty"`
-	Current string                 `json:"current"`
-	Latest  *releaseInfo           `json:"latest,omitempty"`
-	Job     *maintenanceJob        `json:"job,omitempty"`
-	Geodata *releaseInfo           `json:"geodata,omitempty"`
-	Cores   *coreMaintenanceStatus `json:"cores,omitempty"`
+	Success       bool                   `json:"success"`
+	Code          string                 `json:"code,omitempty"`
+	Current       string                 `json:"current"`
+	Latest        *releaseInfo           `json:"latest,omitempty"`
+	Job           *maintenanceJob        `json:"job,omitempty"`
+	Geodata       *releaseInfo           `json:"geodata,omitempty"`
+	GeodataCheck  *geodataReleaseCheck   `json:"geodata_check,omitempty"`
+	GeodataCustom bool                   `json:"geodata_custom,omitempty"`
+	Cores         *coreMaintenanceStatus `json:"cores,omitempty"`
 }
 type maintenanceManager struct {
 	stateDir, configDir, versionFile, lockFile, installLock, initScript string
@@ -214,6 +222,15 @@ func (m *maintenanceManager) status() maintenanceStatus {
 	}
 	if geoBatch != "" && readMaintenanceJSON(filepath.Join(m.configDir, "geodata", geoBatch, "version.json"), &geo) == nil {
 		s.Geodata = &geo
+	}
+	var check geodataReleaseCheck
+	if readMaintenanceJSON(filepath.Join(m.stateDir, "geodata-latest.json"), &check) == nil && check.Checked > 0 && (check.Code != "" || dataTag.MatchString(check.Tag) && check.Version == check.Tag) {
+		s.GeodataCheck = &check
+	}
+	for _, name := range []string{"geoip.dat", "geosite.dat"} {
+		if _, err := os.Lstat(filepath.Join(m.configDir, name)); !os.IsNotExist(err) {
+			s.GeodataCustom = true
+		}
 	}
 	var job maintenanceJob
 	if readMaintenanceJSON(filepath.Join(m.stateDir, "job.json"), &job) == nil {
@@ -849,6 +866,8 @@ func maintenanceCLI(command, configDir, jobID string) {
 	}
 	manager := newMaintenance(configDir)
 	switch command {
+	case "geodata_check":
+		json.NewEncoder(os.Stdout).Encode(manager.checkGeodataLatest(context.Background()))
 	case "status":
 		json.NewEncoder(os.Stdout).Encode(manager.status())
 	case "check", "update", "geodata", "core_check_dae", "core_check_singbox", "core_check_mihomo", "core_install_singbox", "core_install_mihomo", "core_install_extra", "core_switch_dae", "core_switch_singbox", "core_switch_mihomo":

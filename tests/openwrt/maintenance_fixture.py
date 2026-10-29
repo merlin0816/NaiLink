@@ -24,6 +24,9 @@ class MaintenanceFixture:
             def do_GET(self):
                 path = urlsplit(self.path).path
                 outer.state["requests"].append(path)
+                if outer.state["fail"] == "metadata" and path == "/repos/Loyalsoldier/v2ray-rules-dat/releases/latest":
+                    self.send_error(503)
+                    return
                 if outer.state["fail"] == "download":
                     self.send_error(503)
                     return

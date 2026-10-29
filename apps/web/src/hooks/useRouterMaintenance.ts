@@ -1,5 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { jobActive, maintenanceAccessExpired, readMaintenance, startMaintenance } from '~/utils/router-maintenance'
+import {
+  checkGeodataVersion,
+  jobActive,
+  maintenanceAccessExpired,
+  readMaintenance,
+  startMaintenance,
+} from '~/utils/router-maintenance'
+
+export function useGeodataVersionCheck() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationKey: ['geodata-version-check'],
+    mutationFn: checkGeodataVersion,
+    onSuccess: (result) => {
+      client.setQueryData(['router-maintenance'], (previous: typeof result | undefined) => ({ ...previous, ...result }))
+    },
+  })
+}
 
 export function useRouterMaintenanceQuery(enabled = true) {
   return useQuery({

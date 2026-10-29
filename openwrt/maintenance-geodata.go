@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/daeuniverse/dae/pkg/geodata"
 	"google.golang.org/protobuf/proto"
@@ -110,6 +112,84 @@ func switchGeodata(directory, target string) error {
 	return os.Rename(name, filepath.Join(directory, "current"))
 }
 
+// Only public release metadata is fetched. This path never creates a maintenance
+// job, accesses the proxy API, downloads rule data or changes the active pointer.
+func (m *maintenanceManager) checkGeodataLatest(parent context.Context) maintenanceStatus {
+	ctx, cancel := context.WithTimeout(parent, 12*time.Second)
+	defer cancel()
+	respond := func(check *geodataReleaseCheck) maintenanceStatus {
+		result := m.status()
+		result.GeodataCheck = check
+		return result
+	}
+	failure := func(code string) maintenanceStatus {
+		return respond(&geodataReleaseCheck{Checked: m.now().Unix(), Code: code})
+	}
+	if privateDirectory(m.stateDir) != nil {
+		return failure("unsafe_state")
+	}
+	var lock *os.File
+	for {
+		var err error
+		lock, err = maintenanceLock(m.lockFile+".geodata-check", false)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return failure("unsafe_state")
+		}
+		select {
+		case <-ctx.Done():
+			return failure("download_timeout")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	defer lock.Close()
+	cache := filepath.Join(m.stateDir, "geodata-latest.json")
+	var check geodataReleaseCheck
+	if readMaintenanceJSON(cache, &check) == nil {
+		age, cooldown := m.now().Unix()-check.Checked, int64(30)
+		if check.Code != "" {
+			cooldown = 3
+		}
+		if age >= 0 && age < cooldown && (check.Code != "" || dataTag.MatchString(check.Tag) && check.Version == check.Tag) {
+			return respond(&check)
+		}
+	}
+	check = geodataReleaseCheck{Checked: m.now().Unix()}
+	var release githubRelease
+	err := m.getJSON(ctx, "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest", &release)
+	if err == nil {
+		err = validateGeodataRelease(release)
+	}
+	check.Checked = m.now().Unix()
+	if err != nil {
+		check.Code = maintenanceCode(err)
+	} else {
+		check.Version, check.Tag = release.Tag, release.Tag
+	}
+	if writeMaintenanceJSON(cache, check) != nil {
+		check = geodataReleaseCheck{Checked: m.now().Unix(), Code: "state_failed"}
+	}
+	return respond(&check)
+}
+
+func validateGeodataRelease(release githubRelease) error {
+	if release.Draft || !dataTag.MatchString(release.Tag) {
+		return errors.New("invalid_release")
+	}
+	assets := map[string]bool{}
+	for _, asset := range release.Assets {
+		assets[asset.Name] = true
+	}
+	for _, name := range []string{"geoip.dat", "geosite.dat", "geoip.dat.sha256sum", "geosite.dat.sha256sum"} {
+		if !assets[name] {
+			return errors.New("invalid_release")
+		}
+	}
+	return nil
+}
+
 func (m *maintenanceManager) updateGeodata(ctx context.Context, job *maintenanceJob) error {
 	lock, err := maintenanceLock(m.installLock, false)
 	if err != nil {
@@ -147,17 +227,8 @@ func (m *maintenanceManager) updateGeodata(ctx context.Context, job *maintenance
 	if err = m.getJSON(ctx, "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest", &release); err != nil {
 		return err
 	}
-	if release.Draft || !dataTag.MatchString(release.Tag) {
-		return errors.New("invalid_release")
-	}
-	assets := map[string]bool{}
-	for _, asset := range release.Assets {
-		assets[asset.Name] = true
-	}
-	for _, name := range []string{"geoip.dat", "geosite.dat", "geoip.dat.sha256sum", "geosite.dat.sha256sum"} {
-		if !assets[name] {
-			return errors.New("invalid_release")
-		}
+	if err = validateGeodataRelease(release); err != nil {
+		return err
 	}
 	var currentVersion releaseInfo
 	if readMaintenanceJSON(filepath.Join(directory, "current", "version.json"), &currentVersion) == nil && currentVersion.Tag == release.Tag {

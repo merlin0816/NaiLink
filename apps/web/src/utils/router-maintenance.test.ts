@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  checkGeodataVersion,
   coreProblemLabel,
   coreTransitionActive,
+  geodataCheckExpired,
+  geodataVersionState,
   jobActive,
   maintenanceAccessExpired,
   newerVersion,
@@ -11,6 +14,86 @@ import {
 } from './router-maintenance'
 
 describe('maintenance state', () => {
+  it('reports a stale backend instead of silently claiming that rule versions were checked', async () => {
+    vi.stubGlobal('window', {
+      parent: { L: { require: async () => ({ declare: () => async () => ({ success: true, current: '0.6.55-1' }) }) } },
+    })
+    try {
+      await expect(checkGeodataVersion()).rejects.toThrow('规则版本检查接口尚未就绪')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+  it('checks rule metadata through the existing read-only interface without starting an update', async () => {
+    const invoke = vi.fn(async (..._args: string[]) => ({
+      success: true,
+      current: '0.6.56-1',
+      geodata_check: { version: '202610292204', tag: '202610292204', checked: 1000 },
+    }))
+    const declare = vi.fn(() => invoke)
+    vi.stubGlobal('window', { parent: { L: { require: async () => ({ declare }) } } })
+    try {
+      await checkGeodataVersion()
+      expect(declare).toHaveBeenLastCalledWith(
+        expect.objectContaining({ object: 'daed-router', method: 'maintenance', params: ['check_geodata'] }),
+      )
+      expect(invoke).toHaveBeenLastCalledWith('1')
+      await readMaintenance()
+      expect(declare).toHaveBeenLastCalledWith(expect.objectContaining({ method: 'maintenance', params: [] }))
+      expect(invoke).toHaveBeenLastCalledWith()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+  it('compares only fresh known rule batches and never mistakes a failed check for latest', () => {
+    const status = {
+      success: true,
+      current: '0.6.56-1',
+      geodata: { version: '202610282204', tag: '202610282204', checked: 1 },
+      geodata_check: { version: '202610282204', tag: '202610282204', checked: 1000 },
+    }
+    expect(geodataVersionState(status, false, false, 1000000)).toBe('latest')
+    expect(
+      geodataVersionState(
+        { ...status, geodata_check: { ...status.geodata_check, version: '202610292204', tag: '202610292204' } },
+        false,
+        false,
+        1000000,
+      ),
+    ).toBe('available')
+    expect(
+      geodataVersionState(
+        { ...status, geodata_check: { ...status.geodata_check, version: '202610272204', tag: '202610272204' } },
+        false,
+        false,
+        1000000,
+      ),
+    ).toBe('ahead')
+    expect(geodataVersionState({ ...status, geodata_custom: true }, false, false, 1000000)).toBe('custom')
+    expect(geodataVersionState({ ...status, geodata: undefined }, false, false, 1000000)).toBe('unmanaged')
+    expect(geodataVersionState(status, true, false, 1000000)).toBe('checking')
+    expect(geodataVersionState(status, false, true, 1000000)).toBe('error')
+    expect(
+      geodataVersionState(
+        { ...status, geodata_check: { ...status.geodata_check, code: 'download_tls' } },
+        false,
+        false,
+        1000000,
+      ),
+    ).toBe('error')
+    expect(geodataVersionState(status, false, false, 1300000)).toBe('unknown')
+    expect(geodataVersionState(status, false, false, 939000)).toBe('unknown')
+    expect(
+      geodataVersionState(
+        { ...status, geodata_check: { ...status.geodata_check, version: 'different' } },
+        false,
+        false,
+        1000000,
+      ),
+    ).toBe('unknown')
+    expect(geodataCheckExpired(undefined, 1000000)).toBe(true)
+    expect(geodataCheckExpired({ ...status.geodata_check, checked: NaN }, 1000000)).toBe(true)
+  })
   it('recognizes an installed target without hiding rollback or other maintenance failures', () => {
     const job = {
       id: 'previous',
