@@ -8,21 +8,21 @@
   "admin/services/daed/dashboard": {
     "title": "管理面板",
     "order": 10,
-    "action": { "type": "view", "path": "daed-router/workspace" }
+    "action": { "type": "view", "path": "daed-router/workspace-v2" }
   },
   "admin/services/daed/resources": {
     "title": "节点和订阅",
     "order": 20,
-    "action": { "type": "view", "path": "daed-router/workspace" }
+    "action": { "type": "view", "path": "daed-router/workspace-v2" }
   },
   "admin/services/daed/advanced": {
     "title": "高级设置",
     "order": 30,
-    "action": { "type": "view", "path": "daed-router/workspace" }
+    "action": { "type": "view", "path": "daed-router/workspace-v2" }
   },
   "admin/services/daed/logs": {
     "title": "运行日志",
     "order": 40,
-    "action": { "type": "view", "path": "daed-router/workspace-logs" }
+    "action": { "type": "view", "path": "daed-router/workspace-v2" }
   }
 }
