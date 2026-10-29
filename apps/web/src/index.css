@@ -1362,7 +1362,7 @@ form {
   justify-content: flex-end;
   min-width: 0;
 }
-.router-toolbar-actions > [data-slot='button'] {
+.router-toolbar-actions > button {
   height: 40px;
   min-height: 40px;
 }
@@ -1389,7 +1389,7 @@ form {
   outline-offset: 3px;
 }
 @media (pointer: coarse) {
-  .router-toolbar-actions > [data-slot='button'],
+  .router-toolbar-actions > button,
   .community-link {
     height: 44px;
     min-height: 44px;
@@ -1402,7 +1402,7 @@ form {
   .router-toolbar-actions {
     grid-column: 1 / -1;
   }
-  .router-toolbar-actions > [data-slot='button'] {
+  .router-toolbar-actions > button {
     height: 44px;
     min-height: 44px;
   }

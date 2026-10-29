@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { useGeneralQuery, useRunMutation } from '~/apis'
 import { CommunityLinks } from '~/components/CommunityLinks'
 import { RouterCore } from '~/components/RouterCore'
-import { RouterVersion } from '~/components/RouterMaintenance'
+import { RouterGeodata, RouterVersion } from '~/components/RouterMaintenance'
 import { ThemePicker } from '~/components/ThemePicker'
 import { Button } from '~/components/ui/button'
 import { useRouterMaintenance } from '~/hooks/useRouterMaintenance'
@@ -55,6 +55,7 @@ export function RouterHeader() {
         <CommunityLinks />
         <div className="router-toolbar-actions flex flex-wrap items-center gap-2">
           <RouterVersion />
+          <RouterGeodata />
           <RouterCore />
           <ThemePicker variant="compact" />
           <span

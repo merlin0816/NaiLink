@@ -30,7 +30,7 @@ function load(name, protocol = 'http:', page = 'dashboard') {
     ui: { createHandlerFn: (self, fn) => fn.bind(self), addNotification: () => {} },
     dom: { content: (node, content) => { node.children = content; } },
     E: (tag, attrs, children) => {
-      const node = { tag, attrs, children, style: {}, scrollTop: 0, scrollHeight: 1000, clientHeight: 200 };
+      const node = { tag, tagName: tag.toUpperCase(), attrs, children, style: {}, scrollTop: 0, scrollHeight: 1000, clientHeight: 200 };
       Object.defineProperty(node,'textContent',{
         get(){ return (Array.isArray(this.children) ? this.children : [this.children]).map(child=>typeof child==='object' ? child?.textContent || '' : child || '').join(''); },
         set(value){ this.children = String(value); },
@@ -43,6 +43,8 @@ function load(name, protocol = 'http:', page = 'dashboard') {
   context.access = vm.runInContext('(function(){' + fs.readFileSync(path.join(htdocs, 'access.js'), 'utf8') + '\n})()', context);
   context.logFormat = vm.runInContext('(function(){' + fs.readFileSync(path.join(htdocs, 'log-format.js'), 'utf8') + '\n})()', context);
   context.maintenanceView = vm.runInContext('(function(){' + fs.readFileSync(path.join(htdocs, 'maintenance-view.js'), 'utf8') + '\n})()', context);
+  context.nativeLogs = vm.runInContext('(function(){' + fs.readFileSync(path.join(htdocs, 'logs.js'), 'utf8') + '\n})()', context);
+  context.workspace = vm.runInContext('(function(){' + fs.readFileSync(path.join(htdocs, 'workspace.js'), 'utf8') + '\n})()', context);
   const view = vm.runInContext('(function(){' + fs.readFileSync(path.join(htdocs, name + '.js'), 'utf8') + '\n})()', context);
   return { view, polls, calls, fetchCalls, setSession: value => {session = value;}, legacySession: () => {delete context.rpc.getSessionID;}, setResponse: value => {response = value;}, setNetworkFailure: () => {networkFailure = true;}, setAuthorized: value => { authorized = value; }, setResult: value => { result = value; }, setFailure: value => { rpcFailure = value; } };
 }
@@ -286,5 +288,20 @@ test('community links are reachable from logs and service fallback pages', () =>
       assert.equal(link.attrs.rel, 'noopener noreferrer');
       assert.ok(link.attrs['aria-label']);
     }
+  }
+});
+
+
+test('logs use the shared panel header while keeping service-failure diagnostics available', () => {
+  assert.equal(menu['admin/services/daed/logs'].action.path, 'daed-router/workspace-logs');
+  const module = load('workspace-logs', 'https:', 'logs');
+  const frame = module.view.render({running:true, authorized:true});
+  assert.equal(frame.tag, 'iframe');
+  assert.equal(frame.src, '/cgi-bin/daed-router/#/logs');
+  assert.equal(frame.title, 'NaiLink 运行日志');
+  for (const state of [{running:false}, {running:true, authorized:false}]) {
+    const fallback = module.view.render(state);
+    assert.equal(elements(fallback, 'iframe').length, 0);
+    assert.equal(elements(fallback, 'pre')[0].attrs.id, 'router-log-output');
   }
 });

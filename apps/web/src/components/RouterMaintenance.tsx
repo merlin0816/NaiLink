@@ -1,7 +1,21 @@
-import { ChevronDown, Database, Download, LoaderCircle, RefreshCw } from 'lucide-react'
+import { Database, Download, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { Button } from '~/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '~/components/ui/dialog'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '~/components/ui/dialog'
+import {
+  ScrollableDialogBody,
+  ScrollableDialogContent,
+  ScrollableDialogFooter,
+  ScrollableDialogHeader,
+} from '~/components/ui/scrollable-dialog'
 import { useRouterMaintenance } from '~/hooks/useRouterMaintenance'
 import {
   jobActive,
@@ -170,103 +184,118 @@ export function RouterVersion() {
 
 export function RouterGeodata() {
   const { query, mutation, busy } = useRouterMaintenance()
-  const [expanded, setExpanded] = useState(false)
-  const detailsId = useId()
+  const [open, setOpen] = useState(false)
+  const descriptionId = useId()
   const data = query.data?.geodata
   const job = query.data?.job?.action === 'geodata' ? query.data.job : undefined
   const updating = mutation.isPending || jobActive(job)
+  const changeOpen = (value: boolean) => {
+    setOpen(value)
+    if (value) query.refetch()
+  }
   return (
-    <section
-      className="@container min-w-0 rounded-2xl border bg-card p-4 shadow-sm"
-      aria-label="GeoIP 和 GeoSite 规则库"
-    >
-      <div className="flex flex-col gap-3">
-        <div className="flex min-w-0 items-start gap-2">
-          <Database className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold">GeoIP / GeoSite 规则库</h2>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-muted-foreground">
-              <p className="break-words">
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" aria-label="更新规则">
+          <RefreshCw className={`h-3.5 w-3.5 ${updating ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
+          更新规则
+        </Button>
+      </DialogTrigger>
+      <ScrollableDialogContent
+        size="lg"
+        className="sm:max-w-[42rem]"
+        showCloseButton={false}
+        aria-describedby={descriptionId}
+      >
+        <ScrollableDialogHeader className="pr-16 text-left">
+          <DialogTitle className="flex items-center gap-2">
+            <Database className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            GeoIP / GeoSite 规则库
+          </DialogTitle>
+          <DialogDescription id={descriptionId}>更新分流数据，保留现有节点、配置和分流策略。</DialogDescription>
+        </ScrollableDialogHeader>
+        <ScrollableDialogBody className="space-y-4 overscroll-contain text-sm leading-relaxed">
+          <dl className="rounded-xl bg-muted/40 p-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <dt className="text-muted-foreground">当前批次</dt>
+              <dd className="break-words font-medium tabular-nums">
                 {query.isPending
-                  ? '正在读取批次…'
+                  ? '正在读取…'
                   : query.isError
                     ? '暂时无法读取状态'
-                    : data
-                      ? `当前批次 ${data.version}`
-                      : '系统规则库或自定义文件'}
-              </p>
-              {!query.isError && job?.state === 'success' && (
-                <span role="status" aria-label={job.code === 'already_latest' ? '规则库已是最新' : '规则库已更新'}>
-                  {job.code === 'already_latest' ? '已是最新' : '已更新'}
-                </span>
+                    : data?.version || '系统规则库或自定义文件'}
+              </dd>
+            </div>
+          </dl>
+          {(job || updating || busy || query.isError || mutation.isError) && (
+            <div className="sticky top-0 z-10 space-y-2 bg-background">
+              <MaintenanceProgress type="geodata" />
+              <MaintenanceConnection />
+              {mutation.isError && (
+                <p role="alert" className="text-destructive">
+                  {mutation.error.message}
+                </p>
+              )}
+              {mutation.isPending && !jobActive(job) && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  正在提交更新任务…
+                </p>
+              )}
+              {jobActive(job) && (
+                <p className="text-xs text-muted-foreground">关闭窗口后更新仍会继续，可重新打开查看进度。</p>
+              )}
+              {busy && !updating && (
+                <p className="text-xs text-muted-foreground">其他维护任务正在进行，请稍后更新规则库。</p>
               )}
             </div>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-1">
+          )}
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="font-semibold">GeoIP · 按 IP 判断地区</dt>
+              <dd className="mt-1 text-muted-foreground">例如识别中国大陆 IP 和局域网地址，供路由决定是否直连。</dd>
+            </div>
+            <div>
+              <dt className="font-semibold">GeoSite · 按域名分类</dt>
+              <dd className="mt-1 text-muted-foreground">例如识别国内网站，供路由和 DNS 决定访问出口及解析上游。</dd>
+            </div>
+          </dl>
+          <p className="text-muted-foreground">
+            只有路由或 DNS 引用的分类才会生效。更新规则库不改变现有分流策略；AI 等网站走哪个群组，仍由你的路由设置决定。
+          </p>
+          <p className="text-muted-foreground">
+            三个内核使用同一份规则来源：dae 直接加载，sing-box、mihomo 转换为各自的规则后加载。
+          </p>
+          <p className="text-xs text-muted-foreground">
+            来源：Loyalsoldier/v2ray-rules-dat。使用 NaiLink
+            独立目录，两份文件一起校验更新；运行时重新加载已应用配置，失败恢复旧版，保留未应用的修改。
+          </p>
+        </ScrollableDialogBody>
+        <ScrollableDialogFooter className="flex-row items-center">
+          <DialogClose asChild>
+            <Button variant="outline" className="min-h-11">
+              关闭
+            </Button>
+          </DialogClose>
           <Button
-            variant="ghost"
-            size="sm"
-            className="min-h-11 px-2"
-            aria-label="用途与详情"
-            aria-expanded={expanded}
-            aria-controls={detailsId}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            <span className="hidden @xs:inline">用途与详情</span>
-            <span className="@xs:hidden">用途</span>
-            <ChevronDown
-              className={`h-4 w-4 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
-              aria-hidden="true"
-            />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="min-h-11 px-2"
+            className="min-h-11 flex-1 sm:flex-none"
             disabled={busy || query.isPending || query.isError}
             onClick={() => mutation.mutate('geodata')}
           >
             <RefreshCw className={updating ? 'motion-safe:animate-spin' : ''} aria-hidden="true" />
-            {updating ? '更新中…' : '更新规则库'}
+            {updating ? '正在更新…' : '更新'}
           </Button>
-        </div>
-      </div>
-      <div
-        id={detailsId}
-        hidden={!expanded}
-        className="mt-3 space-y-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground"
-      >
-        <dl className="grid gap-3 @sm:grid-cols-2">
-          <div>
-            <dt className="font-medium text-foreground">GeoIP · 按 IP 判断地区</dt>
-            <dd className="mt-1">例如识别中国大陆 IP 和局域网地址，供路由决定是否直连。</dd>
-          </div>
-          <div>
-            <dt className="font-medium text-foreground">GeoSite · 按域名分类</dt>
-            <dd className="mt-1">例如识别国内网站，供路由和 DNS 决定访问出口及解析上游。</dd>
-          </div>
-        </dl>
-        <p>
-          只有路由或 DNS 引用的分类才会生效。更新规则库不改变现有分流策略；AI 等网站走哪个群组，仍由你的路由设置决定。
-        </p>
-        <p>三个内核使用同一份规则来源：dae 直接加载，sing-box、mihomo 转换为各自的规则后加载。</p>
-        <p>
-          来源：Loyalsoldier/v2ray-rules-dat。使用 NaiLink
-          独立目录，两份文件一起校验更新；运行时重新加载已应用配置，失败恢复旧版，保留未应用的修改。
-        </p>
-      </div>
-      {job && job.state !== 'success' && (
-        <div className="mt-3">
-          <MaintenanceProgress type="geodata" />
-        </div>
-      )}
-      <MaintenanceConnection />
-      {mutation.isError && (
-        <p role="alert" className="mt-3 text-sm text-destructive">
-          {mutation.error.message}
-        </p>
-      )}
-    </section>
+        </ScrollableDialogFooter>
+        <DialogClose asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 min-h-11 min-w-11"
+            aria-label="关闭规则库更新窗口"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </DialogClose>
+      </ScrollableDialogContent>
+    </Dialog>
   )
 }

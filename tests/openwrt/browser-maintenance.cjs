@@ -23,7 +23,10 @@ async function control(action, extra = {}) {
 }
 async function switchMenu(page, area) {
   await page.locator(`a[href$="/daed/${area}"]:visible`).first().click()
-  await page.frameLocator('iframe').locator(`[data-workspace="${area}"]`).waitFor()
+  await page
+    .frameLocator('iframe')
+    .locator(area === 'logs' ? '#router-log-output' : `[data-workspace="${area}"]`)
+    .waitFor()
 }
 async function waitText(locator, pattern) {
   for (let i = 0; i < 100; i++) {
@@ -38,11 +41,30 @@ async function waitText(locator, pattern) {
     ...(process.env.DAED_BROWSER_EXECUTABLE ? { executablePath: process.env.DAED_BROWSER_EXECUTABLE } : {}),
   })
   let page
+  let rulesActions = 0
+  const trackRulesActions = (page) =>
+    page.on('request', (request) => {
+      let value
+      try {
+        value = request.postDataJSON()
+      } catch {
+        return
+      }
+      for (const call of Array.isArray(value) ? value : [value]) {
+        if (
+          call?.params?.[1] === 'daed-router' &&
+          call.params[2] === 'maintain' &&
+          call.params[3]?.action === 'geodata'
+        )
+          rulesActions++
+      }
+    })
   try {
     let context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, locale: 'zh-CN' })
     page = await context.newPage()
     const errors = []
     page.on('pageerror', (error) => errors.push(error.message))
+    trackRulesActions(page)
     await page.goto(`${base}/cgi-bin/luci/admin/services/daed/dashboard`)
     await page.locator('input[name=luci_username]').fill('root')
     await page.locator('input[name=luci_password]').fill('fixture-password')
@@ -103,23 +125,26 @@ async function waitText(locator, pattern) {
     await frame.getByRole('button', { name: '重新加载新版本' }).click()
     await frame.locator('[data-workspace="advanced"]').waitFor({ timeout: 45000 })
     assert.deepEqual(await gql(resources), before, 'update fixture changed user data')
-    const card = frame.getByRole('region', { name: 'GeoIP 和 GeoSite 规则库' })
-    // section has an accessible name, so it is a region in the browser tree.
-    const details = card.getByRole('button', { name: '用途与详情' })
-    assert.equal(await details.getAttribute('aria-expanded'), 'false')
-    const collapsedHeight = (await card.boundingBox()).height
-    await details.focus()
-    await page.keyboard.press('Enter')
+    assert.equal(await frame.locator('.panel-advanced-grid > *').count(), 3)
+    const headerRules = frame.locator('header').getByRole('button', { name: '更新规则', exact: true })
+    const order = await frame.locator('.router-toolbar-actions > button').allTextContents()
+    assert.match(order[0], /v0\.6\.99/)
+    assert.equal(order[1], '更新规则')
+    assert.match(order[2], /内核/)
+    const actionsBefore = rulesActions
+    await headerRules.click()
+    const card = frame.getByRole('dialog', { name: 'GeoIP / GeoSite 规则库', exact: true })
     await card.getByText(/只有路由或 DNS 引用的分类才会生效/).waitFor()
-    assert.equal(await details.getAttribute('aria-expanded'), 'true')
-    await page.keyboard.press('Enter')
-    assert.equal(await details.getAttribute('aria-expanded'), 'false')
-    await card.getByRole('button', { name: '更新规则库' }).click()
-    await card.getByRole('status', { name: '规则库已更新', exact: true }).waitFor()
-    assert.ok(
-      (await card.boundingBox()).height <= collapsedHeight + 20,
-      'finished update must return to compact layout',
-    )
+    assert.equal(rulesActions, actionsBefore, 'opening the dialog must not start a rules update')
+    await page.keyboard.press('Escape')
+    await card.waitFor({ state: 'hidden' })
+    assert.equal(await headerRules.evaluate((element) => element === document.activeElement), true)
+    await headerRules.press('Enter')
+    await card.waitFor()
+    assert.equal(rulesActions, actionsBefore, 'reopening the dialog must not start an update')
+    await card.getByRole('button', { name: '更新', exact: true }).click()
+    await waitText(card, /规则库已更新/)
+    assert.equal(rulesActions, actionsBefore + 1, 'only the explicit update action starts maintenance')
     const first = await control('maintenance')
     assert.match(first.current, /^data-/)
     assert.deepEqual(await gql(resources), before)
@@ -129,27 +154,24 @@ async function waitText(locator, pattern) {
       'rules update applied pending config or enabled the proxy',
     )
     await control('maintenance', { fail: 'checksum', bump: true })
-    await card.getByRole('button', { name: '更新规则库' }).click()
+    await card.getByRole('button', { name: '更新', exact: true }).click()
     await waitText(card, /文件校验失败/)
-    assert.equal(
-      await details.getAttribute('aria-expanded'),
-      'false',
-      'failures must be visible with details collapsed',
-    )
+    assert.equal(await card.getByRole('alert').isVisible(), true)
     assert.equal((await control('maintenance')).current, first.current)
     await control('maintenance', { fail: 'invalid_geodata', bump: true })
-    await card.getByRole('button', { name: '更新规则库' }).click()
+    await card.getByRole('button', { name: '更新', exact: true }).click()
     await waitText(card, /规则库格式或内容校验失败/)
     assert.equal((await control('maintenance')).current, first.current)
     await control('maintenance', { fail: '', custom: true })
-    await card.getByRole('button', { name: '更新规则库' }).click()
+    await card.getByRole('button', { name: '更新', exact: true }).click()
     await waitText(card, /检测到自定义 GeoIP/)
     assert.equal((await control('maintenance')).current, first.current)
     await control('maintenance', { custom: false })
-    await card.getByRole('button', { name: '更新规则库' }).click()
-    await card.getByRole('status', { name: '规则库已更新', exact: true }).waitFor()
+    await card.getByRole('button', { name: '更新', exact: true }).click()
+    await waitText(card, /规则库已更新/)
     const second = await control('maintenance')
     assert.notEqual(second.current, first.current)
+    await card.getByRole('button', { name: '关闭', exact: true }).click()
     // Log colors are applied to inert text and keep continuation line severity.
     await control('logs', {
       text: 'time="now" level=info msg="normal"\ntime="now" level=warning msg="warning"\ncontinuation\ntime="now" level=error msg="<script>window.injected=1</script>"\n',
@@ -176,20 +198,20 @@ async function waitText(locator, pattern) {
     })
     page = await context.newPage()
     page.on('pageerror', (error) => errors.push(error.message))
+    trackRulesActions(page)
     await page.goto(`${base}/cgi-bin/luci/admin/services/daed/advanced`)
     frame = page.frameLocator('iframe')
     await frame.locator('[data-workspace="advanced"]').waitFor({ timeout: 45000 })
-    const mobileCard = frame.getByRole('region', { name: 'GeoIP 和 GeoSite 规则库' })
+    await frame.locator('header').getByRole('button', { name: '更新规则', exact: true }).tap()
+    const mobileCard = frame.getByRole('dialog', { name: 'GeoIP / GeoSite 规则库', exact: true })
     assert.equal(await frame.locator('body').evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
-    const button = mobileCard.getByRole('button', { name: '更新规则库' })
-    const mobileDetails = mobileCard.getByRole('button', { name: '用途与详情' })
-    await mobileDetails.tap()
+    const button = mobileCard.getByRole('button', { name: '更新', exact: true })
     await mobileCard.getByText(/只有路由或 DNS 引用的分类才会生效/).waitFor()
-    await mobileDetails.tap()
     for (const action of await frame.locator('.advanced-profile-actions button').all()) {
       assert.ok((await action.boundingBox()).height >= 44, 'profile actions must be usable on touch')
       assert.ok(await action.getAttribute('aria-label'), 'profile icon action needs an accessible name')
     }
+    await button.scrollIntoViewIfNeeded()
     assert.equal(await button.evaluate((el) => el.getBoundingClientRect().height >= 44), true)
     await mobileCard.scrollIntoViewIfNeeded()
     await page.screenshot({ path: path.join(output, 'mobile-geodata.png') })
@@ -199,15 +221,17 @@ async function waitText(locator, pattern) {
     assert.equal((await control('maintenance')).current, second.current)
     await control('maintenance', { fail: '' })
     await button.tap()
-    await mobileCard.getByRole('status', { name: '规则库已更新', exact: true }).waitFor()
+    await waitText(mobileCard, /规则库已更新/)
     const recovered = await control('geodata_crash')
     assert.equal(recovered.current, recovered.previous)
     assert.equal(recovered.receipt.state, 'rolled_back')
     assert.equal(recovered.unchanged, true)
     await page.reload()
     await frame.locator('[data-workspace="advanced"]').waitFor({ timeout: 45000 })
+    await frame.locator('header').getByRole('button', { name: '更新规则', exact: true }).tap()
     await waitText(mobileCard, /新规则库加载失败，已恢复旧版/)
     assert.deepEqual(await gql(resources), before)
+    await mobileCard.getByRole('button', { name: '关闭', exact: true }).tap()
     await control('maintenance', { next: '0.6.100' })
     await frame.getByRole('button', { name: /NaiLink 版本/ }).tap()
     await frame.getByRole('button', { name: '检查更新', exact: true }).tap()

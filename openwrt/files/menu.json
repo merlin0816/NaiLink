@@ -23,6 +23,6 @@
   "admin/services/daed/logs": {
     "title": "运行日志",
     "order": 40,
-    "action": { "type": "view", "path": "daed-router/logs" }
+    "action": { "type": "view", "path": "daed-router/workspace-logs" }
   }
 }

@@ -31,7 +31,6 @@ import { deriveTime } from '~/utils'
 import { groupColumnBase, groupColumnLocations } from '~/utils/group-columns'
 import { useLatencyTests } from '~/hooks/useLatencyTests'
 import { RouterLogs } from '~/pages/RouterLogs'
-import { RouterGeodata } from '~/components/RouterMaintenance'
 import { Config } from './Config'
 import { DNS } from './DNS'
 import { GroupResource } from './Group'
@@ -853,14 +852,13 @@ export function OrchestratePage({ area = 'all' }: { area?: 'all' | 'dashboard' |
         <div
           id="panel-advanced-content"
           hidden={area !== 'advanced' && !advancedOpen}
-          className={`panel-advanced-grid grid grid-cols-1 items-start gap-4 p-4 ${area === 'advanced' ? 'md:grid-cols-2 lg:grid-cols-4' : 'lg:grid-cols-3'}`}
+          className="panel-advanced-grid grid grid-cols-1 items-start gap-4 p-4 lg:grid-cols-3"
         >
           {(area === 'advanced' || (area === 'all' && advancedOpen)) && (
             <>
               <Config />
               <DNS />
               <Routing />
-              {area === 'advanced' && <RouterGeodata />}
             </>
           )}
         </div>
