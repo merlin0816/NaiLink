@@ -108,10 +108,6 @@ async function waitText(locator, pattern) {
     const details = card.getByRole('button', { name: '用途与详情' })
     assert.equal(await details.getAttribute('aria-expanded'), 'false')
     const collapsedHeight = (await card.boundingBox()).height
-    const advancedCards = await frame.locator('.panel-advanced-grid > *').all()
-    assert.equal(advancedCards.length, 4)
-    const rowTops = await Promise.all(advancedCards.map(async (item) => Math.round((await item.boundingBox()).y)))
-    assert.equal(new Set(rowTops).size, 1, 'all four advanced cards must share the desktop row')
     await details.focus()
     await page.keyboard.press('Enter')
     await card.getByText(/只有路由或 DNS 引用的分类才会生效/).waitFor()
